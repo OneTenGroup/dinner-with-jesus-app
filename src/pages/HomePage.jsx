@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
+import { supabase } from '../lib/supabase'
 
 const GREETINGS = {
   morning: [
@@ -40,7 +41,7 @@ export default function HomePage({ onGoToTable, onGoToPray, activeMembers, setAc
   const { profile } = useAuth()
   const [greeting, setGreeting] = useState({ msg: 'Welcome.', sub: '' })
   const [currentTime, setCurrentTime] = useState('')
-  const familyMembers = ['Steve', 'Mandy', 'Avery', 'Kendyl']
+  const [familyMembers, setFamilyMembers] = useState(['Steve', 'Mandy', 'Avery', 'Kendyl'])
 
   useEffect(() => {
     const h = new Date().getHours()
@@ -64,15 +65,21 @@ export default function HomePage({ onGoToTable, onGoToPray, activeMembers, setAc
     )
   }
 
+  const firstName = profile?.name?.split(' ')[0] || 'friend'
+
   return (
     <div className="screen" style={{ paddingTop: '1rem' }}>
+      {/* Brand */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: '1.25rem' }}>
         <div className="cross" style={{ width: 28, height: 28 }}></div>
-        <div style={{ fontFamily: 'Lora, serif', fontSize: '1.05rem', fontWeight: 600, color: 'var(--white)' }}>
-          Dinner with <span style={{ color: 'var(--gold)' }}>Jesus</span>
+        <div>
+          <div style={{ fontFamily: 'Lora, serif', fontSize: '1.05rem', fontWeight: 600, color: 'var(--white)' }}>
+            Dinner with <span style={{ color: 'var(--gold)' }}>Jesus</span>
+          </div>
         </div>
       </div>
 
+      {/* Greeting */}
       <div className="card card-gold" style={{ marginBottom: '1rem' }}>
         <div style={{ fontFamily: 'Lora, serif', fontSize: '1rem', color: 'var(--white)', lineHeight: 1.5, marginBottom: 4 }}>
           {greeting.msg}
@@ -82,4 +89,62 @@ export default function HomePage({ onGoToTable, onGoToPray, activeMembers, setAc
         </div>
       </div>
 
-      <div className="card"
+      {/* Tonight's Table */}
+      <div className="card" style={{ marginBottom: '1rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+          <span className="section-label" style={{ marginBottom: 0 }}>Tonight's Table</span>
+          <span style={{ fontSize: '11px', color: 'var(--silver)', fontWeight: 300 }}>Tap to remove</span>
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: '1rem' }}>
+          {familyMembers.map(m => (
+            <button
+              key={m}
+              className={`member-chip ${activeMembers.includes(m) ? '' : 'off'}`}
+              onClick={() => toggleMember(m)}
+            >
+              <div className="member-dot"></div>
+              {m}
+            </button>
+          ))}
+        </div>
+        <button className="btn btn-gold" onClick={onGoToTable}>
+          Let's Get Started 🙏
+        </button>
+      </div>
+
+      {/* Pray Anytime */}
+      <div className="card" style={{ marginBottom: '1rem' }}>
+        <span className="section-label">Need a moment with God right now?</span>
+        <div className="feelings-grid">
+          {FEELINGS.map(f => (
+            <button
+              key={f.key}
+              className="feeling-btn"
+              onClick={() => onGoToPray(f.key)}
+            >
+              <span className="feeling-emoji">{f.emoji}</span>
+              <span className="feeling-label">{f.label}</span>
+            </button>
+          ))}
+        </div>
+        <button
+          className="btn"
+          style={{ background: 'var(--gold-soft)', borderColor: 'var(--border-gold)', color: 'var(--gold)' }}
+          onClick={() => onGoToPray(null)}
+        >
+          🕐 {currentTime} — Find your verse for this moment
+        </button>
+      </div>
+
+      {/* Memory strip */}
+      <p style={{ textAlign: 'center', fontSize: '12px', color: 'var(--silver)', fontStyle: 'italic', fontWeight: 300, paddingBottom: '1rem' }}>
+        {stats.conversations === 0
+          ? 'Your first conversation starts tonight.'
+          : stats.conversations === 1
+          ? 'Your family has shared 1 conversation at this table.'
+          : `Your family has shared ${stats.conversations} conversations at this table.`
+        }
+      </p>
+    </div>
+  )
+}
