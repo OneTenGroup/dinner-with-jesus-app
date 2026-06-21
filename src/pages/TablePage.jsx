@@ -16,6 +16,7 @@ export default function TablePage({ activeMembers, onDiscussed, stats }) {
   const { profile } = useAuth()
   const [verse, setVerse] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
   const [prayerIdx, setPrayerIdx] = useState(0)
   const [showPrayer, setShowPrayer] = useState(false)
   const [noteText, setNoteText] = useState('')
@@ -25,94 +26,114 @@ export default function TablePage({ activeMembers, onDiscussed, stats }) {
 
   const faithLevel = profile?.faith_level || 1
 
-  useEffect(() => {
-    loadDiscussed()
-  }, [])
+  useEffect(() => { loadEverything() }, [])
 
-  useEffect(() => {
-    if (discussed !== null) loadVerse()
-  }, [discussed])
-
-  async function loadDiscussed() {
-    const { data } = await supabase
-      .from('verse_history')
-      .select('dinner_verse_id')
-    setDiscussed(data?.map(d => d.dinner_verse_id) || [])
+  async function loadEverything() {
+    setLoading(true)
+    setError(null)
+    try {
+      const { data: historyData } = await supabase
+        .from('verse_history')
+        .select('dinner_verse_id')
+      const discussedIds = historyData?.map(d => d.dinner_verse_id) || []
+      setDiscussed(discussedIds)
+      await loadVerse(discussedIds)
+    } catch (err) {
+      setError('Could not load. Please try again.')
+      setLoading(false)
+    }
   }
 
-  async function loadVerse() {
+  async function loadVerse(discussedIds) {
     setLoading(true)
-    const { data, error } = await supabase
-      .from('dinner_verses')
-      .select('*')
-      .eq('active', true)
-      .not('id', 'in', discussed.length ? `(${discussed.join(',')})` : '(00000000-0000-0000-0000-000000000000)')
-      .order('created_at')
-      .limit(20)
+    try {
+      const { data, error } = await supabase
+        .from('dinner_verses')
+        .select('*')
+        .eq('active', true)
+        .limit(50)
 
-    if (data && data.length > 0) {
-      const pick = data[Math.floor(Math.random() * data.length)]
-      setVerse(pick)
-    } else if (data?.length === 0) {
-      // All discussed — reset
-      setDiscussed([])
+      if (error) throw error
+      if (!data || data.length === 0) {
+        setError('No verses found in database.')
+        setLoading(false)
+        return
+      }
+
+      const ids = discussedIds !== undefined ? discussedIds : discussed
+      const available = ids.length > 0 ? data.filter(v => !ids.includes(v.id)) : data
+      const pool = available.length > 0 ? available : data
+      setVerse(pool[Math.floor(Math.random() * pool.length)])
+    } catch (err) {
+      setError('Could not load verse. Please try again.')
     }
     setLoading(false)
   }
 
+  async function newVerse() { await loadVerse(discussed) }
+
   async function markDiscussed() {
     if (!verse) return
-    const { error } = await supabase.from('verse_history').upsert({
-      dinner_verse_id: verse.id,
-      discussed_at: new Date().toISOString()
-    })
-    if (!error) {
-      showToast('Beautiful conversation tonight. 🙏')
+    try {
+      await supabase.from('verse_history').upsert({
+        dinner_verse_id: verse.id,
+        discussed_at: new Date().toISOString()
+      })
+      const newDiscussed = [...discussed, verse.id]
+      setDiscussed(newDiscussed)
       onDiscussed()
-      setTimeout(loadVerse, 1800)
+      showToast('Beautiful conversation tonight. 🙏')
+      setTimeout(() => loadVerse(newDiscussed), 1800)
+    } catch (err) {
+      showToast('Could not save. Please try again.')
     }
   }
 
   async function saveNote() {
     if (!noteText.trim()) { showToast('Write something first.'); return }
-    await supabase.from('notes').insert({
-      verse_ref: verse?.verse_ref,
-      category: verse?.category,
-      content: noteText
-    })
-    showToast("Saved to your journal. ✓")
-    setNoteText('')
-    onDiscussed()
+    try {
+      await supabase.from('notes').insert({
+        verse_ref: verse?.verse_ref,
+        category: verse?.category,
+        content: noteText
+      })
+      showToast('Saved to your journal. ✓')
+      setNoteText('')
+      onDiscussed()
+    } catch (err) {
+      showToast('Could not save note.')
+    }
   }
 
-  function getQuestion() {
+  function getQuestion(level) {
     if (!verse) return ''
-    if (faithLevel === 3) return verse.question_level_3
-    if (faithLevel === 2) return verse.question_level_2
+    if (level === 3) return verse.question_level_3 || verse.question_level_1
+    if (level === 2) return verse.question_level_2 || verse.question_level_1
     return verse.question_level_1
   }
 
   function getPrayer() {
     if (!verse) return ''
-    if (faithLevel === 3) return verse.prayer_level_3
-    if (faithLevel === 2) return verse.prayer_level_2
-    return verse.prayer_level_1
+    if (faithLevel === 3 && verse.prayer_level_3) return verse.prayer_level_3
+    if (faithLevel === 2 && verse.prayer_level_2) return verse.prayer_level_2
+    return verse.prayer_level_1 || PRAYERS[verse.category] || PRAYERS['Faith']
   }
 
   function nextPrayer() {
     setPrayerIdx(i => i + 1)
-    showToast(`${activeMembers[(prayerIdx + 1) % activeMembers.length] || 'Next person'} is up next. 🙏`)
-  }
-
-  function shareVerse() {
-    if (!verse) return
-    const msg = encodeURIComponent(`Tonight's verse:\n\n${verse.verse_ref}\n"${verse.verse_text}"\n\nThinking of you. 🙏`)
-    window.open(`sms:?body=${msg}`)
+    const next = activeMembers[(prayerIdx + 1) % (activeMembers.length || 1)]
+    if (next) showToast(`${next} is up next. 🙏`)
   }
 
   function sendInvite() {
     if (!verse) return
     const msg = encodeURIComponent(`Hey — we're having Dinner with Jesus tonight. Join us?\n\nTonight's verse: ${verse.verse_ref}\n"${verse.verse_text?.substring(0, 80)}..."\n\n[YES, I'm in 🙌] [Sorry, can't make it 🙏]`)
+    window.open(`sms:?body=${msg}`)
+  }
+
+  function shareVerse() {
+    if (!verse) return
+    const msg = encodeURIComponent(`Thinking of you.\n\n${verse.verse_ref}\n"${verse.verse_text}"\n\n🙏`)
     window.open(`sms:?body=${msg}`)
   }
 
@@ -126,96 +147,81 @@ export default function TablePage({ activeMembers, onDiscussed, stats }) {
   const currentMember = activeMembers[prayerIdx % (activeMembers.length || 1)]
   const nextMember = activeMembers[(prayerIdx + 1) % (activeMembers.length || 1)]
 
-  if (loading) {
-    return (
-      <div className="loading-wrap" style={{ flex: 1 }}>
-        <div className="loading-cross">✝️</div>
-        <p style={{ color: 'var(--silver)', fontSize: '14px' }}>Preparing your verse...</p>
-      </div>
-    )
-  }
+  if (loading) return (
+    <div className="loading-wrap" style={{ flex: 1 }}>
+      <div className="loading-cross">✝️</div>
+      <p style={{ color: 'var(--silver)', fontSize: '14px' }}>Preparing your verse...</p>
+    </div>
+  )
 
-  if (!verse) {
-    return (
-      <div className="loading-wrap" style={{ flex: 1 }}>
-        <p style={{ color: 'var(--silver)', fontSize: '14px' }}>Loading...</p>
-      </div>
-    )
-  }
+  if (error) return (
+    <div className="loading-wrap" style={{ flex: 1 }}>
+      <p style={{ color: '#E57373', fontSize: '14px', textAlign: 'center', padding: '1rem' }}>{error}</p>
+      <button className="btn btn-gold" style={{ width: 'auto', padding: '10px 2rem', marginTop: '1rem' }} onClick={loadEverything}>
+        Try again
+      </button>
+    </div>
+  )
+
+  if (!verse) return (
+    <div className="loading-wrap" style={{ flex: 1 }}>
+      <p style={{ color: 'var(--silver)', fontSize: '14px' }}>No verses available.</p>
+      <button className="btn" style={{ marginTop: '1rem' }} onClick={loadEverything}>Refresh</button>
+    </div>
+  )
 
   return (
     <div className="screen" style={{ paddingTop: '1rem' }}>
-      {/* Meal badge */}
       <div style={{ fontSize: '11px', letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--gold)', marginBottom: '1rem' }}>
         {mealLabel}
       </div>
 
-      {/* Verse */}
       <div className="card card-gold">
         <div className="verse-ref">{verse.verse_ref} · {verse.category}</div>
         <div className="verse-text">"{verse.verse_text}"</div>
       </div>
 
-      {/* Context */}
-      <div className="card" style={{ background: 'var(--bg3)' }}>
-        <span className="section-label">A little context</span>
-        <p style={{ fontSize: '14px', color: 'var(--cream)', lineHeight: 1.75, fontWeight: 300 }}>
-          {verse.context_text}
-        </p>
-      </div>
+      {verse.context_text && (
+        <div className="card" style={{ background: 'var(--bg3)' }}>
+          <span className="section-label">A little context</span>
+          <p style={{ fontSize: '14px', color: 'var(--cream)', lineHeight: 1.75, fontWeight: 300 }}>
+            {verse.context_text}
+          </p>
+        </div>
+      )}
 
-      {/* Question */}
       <div className="card card-gold">
         <span className="section-label">For the table tonight</span>
         <p style={{ fontFamily: 'Lora, serif', fontSize: '1rem', color: 'var(--white)', lineHeight: 1.65, fontStyle: 'italic' }}>
-          {getQuestion()}
+          {getQuestion(1)}
         </p>
-
-        {/* Show all 3 levels if faith level is high */}
-        {faithLevel >= 2 && (
+        {faithLevel >= 2 && verse.question_level_2 && (
           <div style={{ marginTop: '1rem', borderTop: '0.5px solid var(--border)', paddingTop: '0.875rem' }}>
-            <p style={{ fontSize: '10px', letterSpacing: '0.15em', textTransform: 'uppercase', color: 'var(--silver)', marginBottom: '0.5rem' }}>
-              Go deeper
-            </p>
-            <p style={{ fontFamily: 'Lora, serif', fontSize: '0.9rem', color: 'var(--silver)', lineHeight: 1.6, fontStyle: 'italic' }}>
-              {verse.question_level_2}
-            </p>
+            <p style={{ fontSize: '10px', letterSpacing: '0.15em', textTransform: 'uppercase', color: 'var(--silver)', marginBottom: '0.5rem' }}>Go deeper</p>
+            <p style={{ fontFamily: 'Lora, serif', fontSize: '0.9rem', color: 'var(--silver)', lineHeight: 1.6, fontStyle: 'italic' }}>{getQuestion(2)}</p>
           </div>
         )}
-        {faithLevel >= 3 && (
+        {faithLevel >= 3 && verse.question_level_3 && (
           <div style={{ marginTop: '0.875rem', borderTop: '0.5px solid var(--border)', paddingTop: '0.875rem' }}>
-            <p style={{ fontSize: '10px', letterSpacing: '0.15em', textTransform: 'uppercase', color: 'var(--silver)', marginBottom: '0.5rem' }}>
-              Push further
-            </p>
-            <p style={{ fontFamily: 'Lora, serif', fontSize: '0.9rem', color: 'var(--silver)', lineHeight: 1.6, fontStyle: 'italic' }}>
-              {verse.question_level_3}
-            </p>
+            <p style={{ fontSize: '10px', letterSpacing: '0.15em', textTransform: 'uppercase', color: 'var(--silver)', marginBottom: '0.5rem' }}>Push further</p>
+            <p style={{ fontFamily: 'Lora, serif', fontSize: '0.9rem', color: 'var(--silver)', lineHeight: 1.6, fontStyle: 'italic' }}>{getQuestion(3)}</p>
           </div>
         )}
       </div>
 
-      {/* Prayer */}
       <div className="card">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
           <span className="section-label" style={{ marginBottom: 0 }}>Prayer</span>
-          {nextMember && (
-            <span style={{ fontSize: '11px', color: 'var(--gold)', background: 'var(--gold-soft)', padding: '2px 10px', borderRadius: 999 }}>
-              Next: {nextMember}
-            </span>
-          )}
+          {nextMember && <span style={{ fontSize: '11px', color: 'var(--gold)', background: 'var(--gold-soft)', padding: '2px 10px', borderRadius: 999 }}>Next: {nextMember}</span>}
         </div>
         <p style={{ fontFamily: 'Lora, serif', fontSize: '0.95rem', color: 'var(--white)', marginBottom: '0.35rem' }}>
           {currentMember ? `${currentMember}'s turn to pray` : 'Your turn to pray'}
         </p>
         <p style={{ fontSize: '12px', color: 'var(--silver)', lineHeight: 1.5, marginBottom: '0.875rem', fontStyle: 'italic', fontWeight: 300 }}>
-          {stats.conversations < 3
-            ? "Not sure what to say? Read the prayer below. Next time is yours."
-            : "Make it yours. Speak from the heart. God's heard it all."}
+          {stats.conversations < 3 ? "Not sure what to say? Read the prayer below. Next time is yours." : "Make it yours. Speak from the heart."}
         </p>
         <div style={{ background: 'var(--bg3)', borderRadius: 10, padding: '1rem', marginBottom: '0.875rem', border: '0.5px solid var(--border)' }}>
-          <p style={{ fontFamily: 'Lora, serif', fontSize: '14px', fontStyle: 'italic', color: 'var(--cream)', lineHeight: 1.8 }}>
-            {getPrayer()}
-          </p>
+          <p style={{ fontFamily: 'Lora, serif', fontSize: '14px', fontStyle: 'italic', color: 'var(--cream)', lineHeight: 1.8 }}>{getPrayer()}</p>
           <p style={{ fontSize: '11px', color: 'var(--silver)', textAlign: 'right', marginTop: '0.5rem' }}>— Amen 🙏</p>
         </div>
         <div className="btn-row">
@@ -224,89 +230,49 @@ export default function TablePage({ activeMembers, onDiscussed, stats }) {
         </div>
       </div>
 
-      {/* Actions */}
       <div className="btn-row">
-        <button className="btn" onClick={loadVerse}>↺ Different verse</button>
+        <button className="btn" onClick={newVerse}>↺ Different verse</button>
         <button className="btn btn-gold" onClick={markDiscussed}>✓ We discussed this</button>
       </div>
 
-      {/* Invite */}
-      <button
-        className="btn"
-        style={{ marginBottom: '0.875rem', background: 'var(--gold-soft)', borderColor: 'var(--border-gold)', color: 'var(--gold)' }}
-        onClick={() => setShowInvite(!showInvite)}
-      >
+      <button className="btn" style={{ marginBottom: '0.875rem', background: 'var(--gold-soft)', borderColor: 'var(--border-gold)', color: 'var(--gold)' }}
+        onClick={() => setShowInvite(!showInvite)}>
         🪑 Invite someone to the table tonight
       </button>
 
       {showInvite && (
         <div className="card" style={{ marginBottom: '0.875rem' }}>
-          <p style={{ fontFamily: 'Lora, serif', fontSize: '0.95rem', color: 'var(--white)', marginBottom: '0.25rem' }}>
-            Can I join your table tonight?
-          </p>
-          <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.875rem', fontWeight: 300 }}>
-            Send a quick text. One tap to join.
-          </p>
+          <p style={{ fontFamily: 'Lora, serif', fontSize: '0.95rem', color: 'var(--white)', marginBottom: '0.25rem' }}>Can I join your table tonight?</p>
+          <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.875rem', fontWeight: 300 }}>Send a quick text. One tap to join.</p>
           {['👨‍👩‍👧‍👦 Extended Family', '👥 Friends', '🏛 Community'].map(g => (
             <div key={g} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.65rem 0.875rem', background: 'var(--bg3)', borderRadius: 10, border: '0.5px solid var(--border)', marginBottom: 6 }}>
               <span style={{ fontSize: '14px', color: 'var(--cream)' }}>{g}</span>
-              <button
-                style={{ background: 'var(--gold-soft)', border: '0.5px solid var(--border-gold)', color: 'var(--gold)', borderRadius: 6, padding: '4px 10px', fontSize: '12px', cursor: 'pointer' }}
-                onClick={sendInvite}
-              >
-                Invite
-              </button>
+              <button style={{ background: 'var(--gold-soft)', border: '0.5px solid var(--border-gold)', color: 'var(--gold)', borderRadius: 6, padding: '4px 10px', fontSize: '12px', cursor: 'pointer' }} onClick={sendInvite}>Invite</button>
             </div>
           ))}
           <button className="btn" style={{ marginTop: '0.5rem' }} onClick={shareVerse}>📤 Share tonight's verse</button>
         </div>
       )}
 
-      {/* Notes */}
-      <div style={{ marginBottom: '5px' }}>
-        <span className="section-label">What happened at the table tonight</span>
-      </div>
-      <textarea
-        value={noteText}
-        onChange={e => setNoteText(e.target.value)}
+      <div style={{ marginBottom: '5px' }}><span className="section-label">What happened at the table tonight</span></div>
+      <textarea value={noteText} onChange={e => setNoteText(e.target.value)}
         placeholder="Something someone said that you never want to forget..."
-        style={{ minHeight: 72, resize: 'none', marginBottom: 8 }}
-      />
-      <button className="btn btn-gold" onClick={saveNote} style={{ marginBottom: '1.5rem' }}>
-        Save this moment
-      </button>
+        style={{ minHeight: 72, resize: 'none', marginBottom: 8 }} />
+      <button className="btn btn-gold" onClick={saveNote} style={{ marginBottom: '1.5rem' }}>Save this moment</button>
 
       <p style={{ textAlign: 'center', fontSize: '12px', color: 'var(--silver)', fontStyle: 'italic', paddingBottom: '1rem' }}>
-        {stats.conversations === 0 ? 'Your first conversation starts tonight.' :
-          `Your family has shared ${stats.conversations} conversation${stats.conversations !== 1 ? 's' : ''} at this table.`}
+        {stats.conversations === 0 ? 'Your first conversation starts tonight.' : `Your family has shared ${stats.conversations} conversation${stats.conversations !== 1 ? 's' : ''} at this table.`}
       </p>
 
-      {/* Prayer overlay */}
       {showPrayer && (
-        <div style={{
-          position: 'fixed', inset: 0,
-          background: 'rgba(13,24,41,0.96)',
-          zIndex: 150,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '2rem',
-          textAlign: 'center',
-          backdropFilter: 'blur(8px)'
-        }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(13,24,41,0.96)', zIndex: 150, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '2rem', textAlign: 'center', backdropFilter: 'blur(8px)' }}>
           <div style={{ fontSize: '1.8rem', marginBottom: '1rem' }}>✝️</div>
-          <p style={{ fontFamily: 'Lora, serif', fontSize: '0.95rem', fontStyle: 'italic', color: 'var(--white)', lineHeight: 1.85, maxWidth: 380, marginBottom: '0.875rem' }}>
-            {getPrayer()}
-          </p>
+          <p style={{ fontFamily: 'Lora, serif', fontSize: '0.95rem', fontStyle: 'italic', color: 'var(--white)', lineHeight: 1.85, maxWidth: 380, marginBottom: '0.875rem' }}>{getPrayer()}</p>
           <p style={{ fontSize: '13px', color: 'var(--silver)', marginBottom: '2rem' }}>— Amen 🙏</p>
-          <button className="btn btn-gold" style={{ width: 'auto', padding: '11px 2rem' }} onClick={() => setShowPrayer(false)}>
-            Close
-          </button>
+          <button className="btn btn-gold" style={{ width: 'auto', padding: '11px 2rem' }} onClick={() => setShowPrayer(false)}>Close</button>
         </div>
       )}
 
-      {/* Toast */}
       <div className={`toast ${toast ? 'show' : ''}`}>{toast}</div>
     </div>
   )
