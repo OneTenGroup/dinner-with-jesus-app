@@ -74,7 +74,7 @@ export default function App() {
       )}
       {activeTab === 'pray' && <PrayPage initialFeeling={initialFeeling} />}
       {activeTab === 'journal' && <JournalPage />}
-      {activeTab === 'settings' && <SettingsPage members={members} />}
+      {activeTab === 'settings' && <SettingsPage members={members || []} />}
       <nav className="bottom-nav">
         {tabs.map(t => (
           <button
