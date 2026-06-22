@@ -84,9 +84,10 @@ export default function AuthPage() {
         )}
       </div>
 
-      <p style={{ marginTop: '2rem', fontSize: '11px', color: 'var(--silver)', opacity: 0.6 }}>
-        Colossians 1:10 · 1:10
-      </p>
+     <p style={{ marginTop: '2rem', fontSize: '11px', color: 'var(--silver)', opacity: 0.6, lineHeight: 1.8 }}>
+  Colossians 1:10<br />
+  Built by <a href="https://onetengroup.ai" target="_blank" style={{ color: 'var(--gold)', textDecoration: 'none' }}>OneTen Group</a>
+</p>
     </div>
   )
 }
