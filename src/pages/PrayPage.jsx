@@ -114,7 +114,7 @@ export default function PrayPage({ initialFeeling }) {
           Your verse for this moment
         </p>
         <p style={{ fontSize: '12px', color: 'var(--silver)', fontWeight: 300, marginBottom: '1rem' }}>
-          Every minute of the day has a Bible verse waiting for it.
+          God meets us in our moments — not just our milestones. Right now, at this exact time, Scripture has something waiting for you. A chapter. A verse. A word that's been there for centuries. Open it. It might be exactly what you need.
         </p>
         <div style={{ fontFamily: 'Lora, serif', fontSize: '2.5rem', fontWeight: 600, color: 'var(--gold)', textAlign: 'center', marginBottom: '1rem', letterSpacing: '0.05em' }}>
           {currentTime}
