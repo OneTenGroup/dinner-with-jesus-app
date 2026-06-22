@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from './context/AuthContext'
 import { useFamily } from './hooks/useFamily'
 import AuthPage from './pages/AuthPage'
@@ -11,20 +11,21 @@ import SettingsPage from './pages/SettingsPage'
 
 export default function App() {
   const { user, profile, loading } = useAuth()
-  const { members } = useFamily()
+  const { members, loading: familyLoading } = useFamily()
   const [activeTab, setActiveTab] = useState('home')
-  const [activeMembers, setActiveMembers] = useState(null)
+  const [activeMembers, setActiveMembers] = useState([])
   const [initialFeeling, setInitialFeeling] = useState(null)
   const [stats, setStats] = useState({ conversations: 0 })
   const [onboardingDone, setOnboardingDone] = useState(false)
 
-  if (members.length > 0 && activeMembers === null) {
-    setActiveMembers(members)
-  }
+  // Sync activeMembers when family loads
+  useEffect(() => {
+    if (members.length > 0) {
+      setActiveMembers(members)
+    }
+  }, [members])
 
-  const currentMembers = activeMembers || members
-
-  if (loading) {
+  if (loading || familyLoading) {
     return (
       <div style={{ background: 'var(--bg)', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '1rem' }}>
         <div style={{ fontSize: '2rem', animation: 'pulse 2s ease-in-out infinite' }}>✝️</div>
@@ -58,7 +59,7 @@ export default function App() {
         <HomePage
           onGoToTable={goToTable}
           onGoToPray={goToPray}
-          activeMembers={currentMembers}
+          activeMembers={activeMembers}
           setActiveMembers={setActiveMembers}
           allMembers={members}
           stats={stats}
@@ -66,7 +67,7 @@ export default function App() {
       )}
       {activeTab === 'table' && (
         <TablePage
-          activeMembers={currentMembers}
+          activeMembers={activeMembers.length > 0 ? activeMembers : members}
           onDiscussed={onDiscussed}
           stats={stats}
         />
