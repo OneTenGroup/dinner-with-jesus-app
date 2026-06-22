@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
-import { supabase } from '../lib/supabase'
 
 const GREETINGS = {
   morning: [
@@ -41,7 +40,9 @@ export default function HomePage({ onGoToTable, onGoToPray, activeMembers, setAc
   const { profile } = useAuth()
   const [greeting, setGreeting] = useState({ msg: 'Welcome.', sub: '' })
   const [currentTime, setCurrentTime] = useState('')
-  const familyMembers = allMembers && allMembers.length > 0 ? allMembers : ['Steve', 'Mandy', 'Avery', 'Kendyl']
+
+  // Use database members, no hardcoded fallback
+  const familyMembers = allMembers || []
 
   useEffect(() => {
     const h = new Date().getHours()
@@ -65,17 +66,14 @@ export default function HomePage({ onGoToTable, onGoToPray, activeMembers, setAc
     )
   }
 
-  const firstName = profile?.name?.split(' ')[0] || 'friend'
-
   return (
     <div className="screen" style={{ paddingTop: '1rem' }}>
+
       {/* Brand */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: '1.25rem' }}>
         <div className="cross" style={{ width: 28, height: 28 }}></div>
-        <div>
-          <div style={{ fontFamily: 'Lora, serif', fontSize: '1.05rem', fontWeight: 600, color: 'var(--white)' }}>
-            Dinner with <span style={{ color: 'var(--gold)' }}>Jesus</span>
-          </div>
+        <div style={{ fontFamily: 'Lora, serif', fontSize: '1.05rem', fontWeight: 600, color: 'var(--white)' }}>
+          Dinner with <span style={{ color: 'var(--gold)' }}>Jesus</span>
         </div>
       </div>
 
@@ -93,20 +91,30 @@ export default function HomePage({ onGoToTable, onGoToPray, activeMembers, setAc
       <div className="card" style={{ marginBottom: '1rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
           <span className="section-label" style={{ marginBottom: 0 }}>Tonight's Table</span>
-          <span style={{ fontSize: '11px', color: 'var(--silver)', fontWeight: 300 }}>Tap to remove</span>
+          {familyMembers.length > 0 && (
+            <span style={{ fontSize: '11px', color: 'var(--silver)', fontWeight: 300 }}>Tap to remove</span>
+          )}
         </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: '1rem' }}>
-          {familyMembers.map(m => (
-            <button
-              key={m}
-              className={`member-chip ${activeMembers.includes(m) ? '' : 'off'}`}
-              onClick={() => toggleMember(m)}
-            >
-              <div className="member-dot"></div>
-              {m}
-            </button>
-          ))}
-        </div>
+
+        {familyMembers.length === 0 ? (
+          <p style={{ fontSize: '13px', color: 'var(--silver)', fontStyle: 'italic', marginBottom: '1rem', lineHeight: 1.6 }}>
+            Your table is empty. Circles feature coming soon — invite your family to join!
+          </p>
+        ) : (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: '1rem' }}>
+            {familyMembers.map(m => (
+              <button
+                key={m}
+                className={`member-chip ${activeMembers && activeMembers.includes(m) ? '' : 'off'}`}
+                onClick={() => toggleMember(m)}
+              >
+                <div className="member-dot"></div>
+                {m}
+              </button>
+            ))}
+          </div>
+        )}
+
         <button className="btn btn-gold" onClick={onGoToTable}>
           Let's Get Started 🙏
         </button>
@@ -117,11 +125,7 @@ export default function HomePage({ onGoToTable, onGoToPray, activeMembers, setAc
         <span className="section-label">Need a moment with God right now?</span>
         <div className="feelings-grid">
           {FEELINGS.map(f => (
-            <button
-              key={f.key}
-              className="feeling-btn"
-              onClick={() => onGoToPray(f.key)}
-            >
+            <button key={f.key} className="feeling-btn" onClick={() => onGoToPray(f.key)}>
               <span className="feeling-emoji">{f.emoji}</span>
               <span className="feeling-label">{f.label}</span>
             </button>
@@ -142,8 +146,7 @@ export default function HomePage({ onGoToTable, onGoToPray, activeMembers, setAc
           ? 'Your first conversation starts tonight.'
           : stats.conversations === 1
           ? 'Your family has shared 1 conversation at this table.'
-          : `Your family has shared ${stats.conversations} conversations at this table.`
-        }
+          : `Your family has shared ${stats.conversations} conversations at this table.`}
       </p>
     </div>
   )
