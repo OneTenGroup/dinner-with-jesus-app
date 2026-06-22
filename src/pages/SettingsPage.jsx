@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 const FAITH_LABELS = { 1: 'Seeker — gentle questions', 2: 'Growing — one layer deeper', 3: 'Deep — challenging & application' }
 const TRANSLATIONS = ['NIV', 'NLT', 'KJV', 'ESV', 'NKJV']
 
-export default function SettingsPage() {
+export default function SettingsPage({ members = [] }) {
   const { profile, signOut, updateProfile } = useAuth()
   const [toast, setToast] = useState('')
 
