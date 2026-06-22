@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useAuth } from './context/AuthContext'
+import { useFamily } from './hooks/useFamily'
 import AuthPage from './pages/AuthPage'
 import OnboardingPage from './pages/OnboardingPage'
 import HomePage from './pages/HomePage'
@@ -10,11 +11,18 @@ import SettingsPage from './pages/SettingsPage'
 
 export default function App() {
   const { user, profile, loading } = useAuth()
+  const { members } = useFamily()
   const [activeTab, setActiveTab] = useState('home')
-  const [activeMembers, setActiveMembers] = useState(['Steve', 'Mandy', 'Avery', 'Kendyl'])
+  const [activeMembers, setActiveMembers] = useState(null)
   const [initialFeeling, setInitialFeeling] = useState(null)
   const [stats, setStats] = useState({ conversations: 0 })
   const [onboardingDone, setOnboardingDone] = useState(false)
+
+  if (members.length > 0 && activeMembers === null) {
+    setActiveMembers(members)
+  }
+
+  const currentMembers = activeMembers || members
 
   if (loading) {
     return (
@@ -46,14 +54,33 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      {activeTab === 'home' && <HomePage onGoToTable={goToTable} onGoToPray={goToPray} activeMembers={activeMembers} setActiveMembers={setActiveMembers} stats={stats} />}
-      {activeTab === 'table' && <TablePage activeMembers={activeMembers} onDiscussed={onDiscussed} stats={stats} />}
+      {activeTab === 'home' && (
+        <HomePage
+          onGoToTable={goToTable}
+          onGoToPray={goToPray}
+          activeMembers={currentMembers}
+          setActiveMembers={setActiveMembers}
+          allMembers={members}
+          stats={stats}
+        />
+      )}
+      {activeTab === 'table' && (
+        <TablePage
+          activeMembers={currentMembers}
+          onDiscussed={onDiscussed}
+          stats={stats}
+        />
+      )}
       {activeTab === 'pray' && <PrayPage initialFeeling={initialFeeling} />}
       {activeTab === 'journal' && <JournalPage />}
-      {activeTab === 'settings' && <SettingsPage />}
+      {activeTab === 'settings' && <SettingsPage members={members} />}
       <nav className="bottom-nav">
         {tabs.map(t => (
-          <button key={t.id} className={`nav-item ${activeTab === t.id ? 'active' : ''}`} onClick={() => setActiveTab(t.id)}>
+          <button
+            key={t.id}
+            className={`nav-item ${activeTab === t.id ? 'active' : ''}`}
+            onClick={() => setActiveTab(t.id)}
+          >
             <span className="nav-icon">{t.icon}</span>
             <span className="nav-label">{t.label}</span>
           </button>
