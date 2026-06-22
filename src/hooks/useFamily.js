@@ -6,10 +6,15 @@ export function useFamily() {
   const { user } = useAuth()
   const [family, setFamily] = useState(null)
   const [members, setMembers] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    if (user) loadFamily()
+    if (user) {
+      loadFamily()
+    } else {
+      setMembers([])
+      setLoading(false)
+    }
   }, [user])
 
   async function loadFamily() {
