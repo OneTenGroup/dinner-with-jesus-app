@@ -37,11 +37,11 @@ const FEELINGS = [
   { emoji: '🌟', label: 'Direction', key: 'direction' },
 ]
 
-export default function HomePage({ onGoToTable, onGoToPray, activeMembers, setActiveMembers, stats }) {
+export default function HomePage({ onGoToTable, onGoToPray, activeMembers, setActiveMembers, allMembers, stats }) {
   const { profile } = useAuth()
   const [greeting, setGreeting] = useState({ msg: 'Welcome.', sub: '' })
   const [currentTime, setCurrentTime] = useState('')
-  const [familyMembers, setFamilyMembers] = useState(['Steve', 'Mandy', 'Avery', 'Kendyl'])
+  const familyMembers = allMembers && allMembers.length > 0 ? allMembers : ['Steve', 'Mandy', 'Avery', 'Kendyl']
 
   useEffect(() => {
     const h = new Date().getHours()
