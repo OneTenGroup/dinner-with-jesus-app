@@ -131,13 +131,7 @@ export default function HomePage({ onGoToTable, onGoToPray, activeMembers, setAc
             </button>
           ))}
         </div>
-        <button
-          className="btn"
-          style={{ background: 'var(--gold-soft)', borderColor: 'var(--border-gold)', color: 'var(--gold)' }}
-          onClick={() => onGoToPray(null)}
-        >
-          🕐 {currentTime} — Find your verse for this moment
-        </button>
+
       </div>
 
       {/* Memory strip */}
