@@ -1,3 +1,4 @@
+import KendylScene from './components/KendylScene'
 import { useState, useEffect } from 'react'
 import { useAuth } from './context/AuthContext'
 import { useFamily } from './hooks/useFamily'
