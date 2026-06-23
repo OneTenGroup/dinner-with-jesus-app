@@ -18,7 +18,7 @@ export default function App() {
   const [initialFeeling, setInitialFeeling] = useState(null)
   const [stats, setStats] = useState({ conversations: 0 })
   const [onboardingDone, setOnboardingDone] = useState(false)
-
+  const [showKendyl, setShowKendyl] = useState(false)
   // Sync activeMembers when family loads
   useEffect(() => {
     if (members.length > 0) {
