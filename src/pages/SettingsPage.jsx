@@ -55,17 +55,18 @@ export default function SettingsPage({ members = [] }) {
     setJoining(true)
     try {
       // Find family with this invite code
-      const { data: familyData, error } = await supabase
+      const { data: familyResults, error } = await supabase
         .from('families')
         .select('id, name')
         .eq('invite_code', joinCode.toUpperCase())
-        .single()
+        .limit(1)
 
-      if (error || !familyData) {
+      if (error || !familyResults || familyResults.length === 0) {
         showToast('Code not found. Check and try again.')
         setJoining(false)
         return
       }
+      const familyData = familyResults[0]
 
       // Check not already a member
       const { data: existing } = await supabase
