@@ -92,10 +92,16 @@ export default function TablePage({ activeMembers, onDiscussed, stats }) {
   async function saveNote() {
     if (!noteText.trim()) { showToast('Write something first.'); return }
     try {
+      const { data: memberData } = await supabase
+        .from('family_members')
+        .select('family_id')
+        .single()
+
       await supabase.from('notes').insert({
         verse_ref: verse?.verse_ref,
         category: verse?.category,
-        content: noteText
+        content: noteText,
+        family_id: memberData?.family_id || null
       })
       showToast('Saved to your journal. ✓')
       setNoteText('')
