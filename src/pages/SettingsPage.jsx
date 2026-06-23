@@ -85,7 +85,7 @@ export default function SettingsPage({ members = [] }) {
         .insert({
           name: newFamilyName.trim(),
           invite_code: code,
-          created_by: user.id
+          owner_id: user.id
         })
         .select('id, name, invite_code')
         .single()
