@@ -108,83 +108,124 @@ export default function PrayPage({ initialFeeling }) {
   return (
     <div className="screen" style={{ paddingTop: '1rem' }}>
 
-      {/* TIME VERSE SECTION */}
-      <div className="card card-gold" style={{ marginBottom: '1rem' }}>
-        <p style={{ fontFamily: 'Lora, serif', fontSize: '1rem', color: 'var(--white)', marginBottom: '0.25rem' }}>
-          Your verse for this moment
-        </p>
-        <p style={{ fontSize: '12px', color: 'var(--silver)', fontWeight: 300, marginBottom: '1rem' }}>
-          God meets us in our moments — not just our milestones. Right now, at this exact time, Scripture has something waiting for you. A chapter. A verse. A word that's been there for centuries. Open it. It might be exactly what you need.
-        </p>
-        <div style={{ fontFamily: 'Lora, serif', fontSize: '2.5rem', fontWeight: 600, color: 'var(--gold)', textAlign: 'center', marginBottom: '1rem', letterSpacing: '0.05em' }}>
-          {currentTime}
-        </div>
-
-        {!timeLoaded ? (
-          <button
-            className="btn btn-gold"
-            onClick={loadTimeVerses}
-            disabled={timeLoading}
-            style={{ width: '100%' }}
-          >
-            {timeLoading ? 'Finding your verse...' : `🕐 Find verses for ${currentTime}`}
-          </button>
-        ) : timeVerses.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '1rem', background: 'var(--bg3)', borderRadius: 10, border: '0.5px dashed var(--border-gold)' }}>
-            <p style={{ fontSize: '13px', color: 'var(--silver)', lineHeight: 1.7 }}>
-              No verses found for {currentTime} in the database.<br />
-              <span style={{ color: 'var(--gold)', fontStyle: 'italic' }}>Try again at a different moment.</span>
-            </p>
-            <button className="btn" style={{ marginTop: '0.75rem' }} onClick={() => { setTimeLoaded(false); setTimeVerses([]) }}>
-              Try current time
-            </button>
-          </div>
-        ) : (
-          <div>
-            <p style={{ fontSize: '11px', letterSpacing: '0.15em', textTransform: 'uppercase', color: 'var(--silver)', marginBottom: '0.75rem' }}>
-              {timeVerses.length} verse{timeVerses.length !== 1 ? 's' : ''} for {currentTime} across Scripture
-            </p>
-            {timeVerses.map((v, i) => (
-              <div
-                key={v.id}
-                onClick={() => setSelectedTimeVerse(selectedTimeVerse?.id === v.id ? null : v)}
-                style={{
-                  padding: '0.875rem',
-                  background: selectedTimeVerse?.id === v.id ? 'var(--gold-soft)' : 'var(--bg3)',
-                  borderRadius: 10,
-                  border: `0.5px solid ${selectedTimeVerse?.id === v.id ? 'var(--border-gold)' : 'var(--border)'}`,
-                  marginBottom: 8,
-                  cursor: 'pointer',
-                  transition: 'all 0.15s'
-                }}
-              >
-                <div style={{ fontSize: '11px', fontWeight: 500, color: 'var(--gold)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '0.35rem' }}>
-                  {v.book} {v.chapter}:{v.verse}
-                </div>
-                <div style={{ fontFamily: 'Lora, serif', fontSize: '0.88rem', fontStyle: 'italic', color: 'var(--white)', lineHeight: 1.7 }}>
-                  "{v.text_kjv}"
-                </div>
-                {selectedTimeVerse?.id === v.id && (
-                  <button
-                    className="btn btn-gold"
-                    style={{ marginTop: '0.75rem', fontSize: '12px', padding: '7px 14px', width: 'auto' }}
-                    onClick={e => { e.stopPropagation(); setShowPrayerOverlay(true) }}
-                  >
-                    🙏 Pray this verse
-                  </button>
-                )}
+      {/* TIME VERSE — prominent but not dominant */}
+      <div style={{ marginBottom: '1.25rem' }}>
+        <div style={{
+          background: 'var(--bg2)',
+          border: '0.5px solid var(--border-gold)',
+          borderRadius: 14,
+          overflow: 'hidden'
+        }}>
+          {/* Header row */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '1rem 1rem 0.75rem',
+            borderBottom: timeLoaded ? '0.5px solid var(--border)' : 'none'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{
+                width: 40, height: 40,
+                borderRadius: 10,
+                background: 'var(--gold-soft)',
+                border: '0.5px solid var(--border-gold)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: '1.2rem', flexShrink: 0
+              }}>
+                🕐
               </div>
-            ))}
-            <button className="btn" style={{ marginTop: '0.5rem' }} onClick={() => { setTimeLoaded(false); setTimeVerses([]) }}>
-              ↺ Refresh for current time
-            </button>
+              <div>
+                <div style={{ fontFamily: 'Lora, serif', fontSize: '0.95rem', color: 'var(--white)', fontWeight: 600 }}>
+                  Your verse for this moment
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--silver)', fontWeight: 300, marginTop: 1 }}>
+                  God speaks through Scripture — even in the numbers
+                </div>
+              </div>
+            </div>
+            <div style={{
+              fontFamily: 'Lora, serif',
+              fontSize: '1.4rem',
+              fontWeight: 600,
+              color: 'var(--gold)',
+              letterSpacing: '0.05em',
+              flexShrink: 0,
+              marginLeft: 8
+            }}>
+              {currentTime}
+            </div>
           </div>
-        )}
+
+          {/* Body */}
+          <div style={{ padding: '0.875rem 1rem 1rem' }}>
+            {!timeLoaded ? (
+              <button
+                className="btn btn-gold"
+                onClick={loadTimeVerses}
+                disabled={timeLoading}
+                style={{ width: '100%', fontSize: '14px', padding: '12px' }}
+              >
+                {timeLoading ? 'Finding your verses...' : `Find verses for ${currentTime}`}
+              </button>
+            ) : timeVerses.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '0.75rem 0' }}>
+                <p style={{ fontSize: '13px', color: 'var(--silver)', lineHeight: 1.7, marginBottom: '0.75rem' }}>
+                  No verses found for {currentTime}.<br />
+                  <span style={{ color: 'var(--gold)', fontStyle: 'italic' }}>Try again at a different moment.</span>
+                </p>
+                <button className="btn" onClick={() => { setTimeLoaded(false); setTimeVerses([]) }}>
+                  Try current time
+                </button>
+              </div>
+            ) : (
+              <div>
+                <p style={{ fontSize: '11px', letterSpacing: '0.15em', textTransform: 'uppercase', color: 'var(--silver)', marginBottom: '0.75rem' }}>
+                  {timeVerses.length} verse{timeVerses.length !== 1 ? 's' : ''} across Scripture for {currentTime}
+                </p>
+                {timeVerses.map(v => (
+                  <div
+                    key={v.id}
+                    onClick={() => setSelectedTimeVerse(selectedTimeVerse?.id === v.id ? null : v)}
+                    style={{
+                      padding: '0.875rem',
+                      background: selectedTimeVerse?.id === v.id ? 'var(--gold-soft)' : 'var(--bg3)',
+                      borderRadius: 10,
+                      border: `0.5px solid ${selectedTimeVerse?.id === v.id ? 'var(--border-gold)' : 'var(--border)'}`,
+                      marginBottom: 8,
+                      cursor: 'pointer',
+                      transition: 'all 0.15s'
+                    }}
+                  >
+                    <div style={{ fontSize: '11px', fontWeight: 500, color: 'var(--gold)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '0.35rem' }}>
+                      {v.book} {v.chapter}:{v.verse}
+                    </div>
+                    <div style={{ fontFamily: 'Lora, serif', fontSize: '0.88rem', fontStyle: 'italic', color: 'var(--white)', lineHeight: 1.7 }}>
+                      "{v.text_kjv}"
+                    </div>
+                    {selectedTimeVerse?.id === v.id && (
+                      <button
+                        className="btn btn-gold"
+                        style={{ marginTop: '0.75rem', fontSize: '12px', padding: '7px 14px', width: 'auto' }}
+                        onClick={e => { e.stopPropagation(); setShowPrayerOverlay(true) }}
+                      >
+                        🙏 Pray this verse
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <button className="btn" style={{ marginTop: '0.25rem' }} onClick={() => { setTimeLoaded(false); setTimeVerses([]) }}>
+                  ↺ Refresh for current time
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* FEELINGS SECTION */}
       <div className="card">
-        <span className="section-label">How are you feeling right now?</span>
+        <span className="section-label">Need a moment with God right now?</span>
         <div className="feelings-grid">
           {FEELINGS.map(f => (
             <button
@@ -269,6 +310,7 @@ export default function PrayPage({ initialFeeling }) {
           </button>
         </div>
       )}
+
     </div>
   )
 }
