@@ -30,7 +30,12 @@ export default function SettingsPage({ members = [] }) {
   const [familyName, setFamilyName] = useState('')
   const [newFamilyName, setNewFamilyName] = useState('')
   const [hasFamily, setHasFamily] = useState(false)
-  const [circleMode, setCircleMode] = useState('none') // 'none' | 'join' | 'create'
+  const [familyId, setFamilyId] = useState(null)
+  const [userRole, setUserRole] = useState('member')
+  const [circleMode, setCircleMode] = useState('none')
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false)
+  const [leaving, setLeaving] = useState(false)
+  const [regenerating, setRegenerating] = useState(false)
 
   useEffect(() => {
     loadFamilyInfo()
@@ -47,6 +52,8 @@ export default function SettingsPage({ members = [] }) {
 
       if (memberData?.family_id) {
         setHasFamily(true)
+        setFamilyId(memberData.family_id)
+        setUserRole(memberData.role || 'member')
         const { data: familyData } = await supabase
           .from('families')
           .select('name, invite_code')
@@ -58,7 +65,7 @@ export default function SettingsPage({ members = [] }) {
         }
       }
     } catch (err) {
-      // No family yet — expected for new users
+      // No family yet
     }
   }
 
@@ -69,9 +76,7 @@ export default function SettingsPage({ members = [] }) {
     }
     setCreating(true)
     try {
-      // Generate a unique invite code
       let code = generateInviteCode()
-      // Check uniqueness (retry once if collision)
       const { data: existing } = await supabase
         .from('families')
         .select('id')
@@ -79,7 +84,6 @@ export default function SettingsPage({ members = [] }) {
         .single()
       if (existing) code = generateInviteCode()
 
-      // Create the family
       const { data: newFamily, error: familyError } = await supabase
         .from('families')
         .insert({
@@ -96,7 +100,6 @@ export default function SettingsPage({ members = [] }) {
         return
       }
 
-      // Add creator as owner
       const { error: memberError } = await supabase
         .from('family_members')
         .insert({
@@ -115,6 +118,8 @@ export default function SettingsPage({ members = [] }) {
 
       setFamilyName(newFamily.name)
       setInviteCode(newFamily.invite_code)
+      setFamilyId(newFamily.id)
+      setUserRole('owner')
       setHasFamily(true)
       setCircleMode('none')
       setNewFamilyName('')
@@ -179,6 +184,57 @@ export default function SettingsPage({ members = [] }) {
     setJoining(false)
   }
 
+  async function handleLeaveTable() {
+    setLeaving(true)
+    try {
+      await supabase
+        .from('family_members')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('family_id', familyId)
+
+      setHasFamily(false)
+      setFamilyId(null)
+      setFamilyName('')
+      setInviteCode('')
+      setUserRole('member')
+      setShowLeaveConfirm(false)
+      await reload()
+      showToast('You have left the table.')
+    } catch (err) {
+      showToast('Could not leave table. Try again.')
+    }
+    setLeaving(false)
+  }
+
+  async function handleRegenerateCode() {
+    setRegenerating(true)
+    try {
+      let code = generateInviteCode()
+      const { data: existing } = await supabase
+        .from('families')
+        .select('id')
+        .eq('invite_code', code)
+        .single()
+      if (existing) code = generateInviteCode()
+
+      const { error } = await supabase
+        .from('families')
+        .update({ invite_code: code })
+        .eq('id', familyId)
+
+      if (error) {
+        showToast('Could not regenerate code. Try again.')
+      } else {
+        setInviteCode(code)
+        showToast('New invite code generated! ✓')
+      }
+    } catch (err) {
+      showToast('Something went wrong. Try again.')
+    }
+    setRegenerating(false)
+  }
+
   function copyInviteCode() {
     navigator.clipboard.writeText(inviteCode)
     showToast('Invite code copied! ✓')
@@ -209,6 +265,8 @@ export default function SettingsPage({ members = [] }) {
     setTimeout(() => setToast(''), 2800)
   }
 
+  const isOwner = userRole === 'owner'
+
   return (
     <div className="screen" style={{ paddingTop: '1rem' }}>
       <h2 style={{ fontFamily: 'Lora, serif', fontSize: '1.3rem', fontWeight: 600, color: 'var(--white)', marginBottom: '0.25rem' }}>
@@ -237,9 +295,14 @@ export default function SettingsPage({ members = [] }) {
 
       {hasFamily ? (
         <div className="card" style={{ marginBottom: '1.5rem' }}>
-          <p style={{ fontSize: '13px', color: 'var(--white)', marginBottom: '0.25rem', fontWeight: 500 }}>
-            {familyName || 'Your Table'}
-          </p>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
+            <p style={{ fontSize: '13px', color: 'var(--white)', fontWeight: 500, margin: 0 }}>
+              {familyName || 'Your Table'}
+            </p>
+            <span style={{ fontSize: '11px', color: 'var(--gold)', opacity: 0.7 }}>
+              {isOwner ? 'Owner' : 'Member'}
+            </span>
+          </div>
           <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '1rem', fontWeight: 300 }}>
             Share this code so others can join your table.
           </p>
@@ -252,6 +315,57 @@ export default function SettingsPage({ members = [] }) {
             <button className="btn" onClick={copyInviteCode}>📋 Copy code</button>
             <button className="btn btn-gold" onClick={shareInviteCode}>📤 Share invite</button>
           </div>
+
+          {/* Owner-only: regenerate code */}
+          {isOwner && (
+            <button
+              className="btn"
+              onClick={handleRegenerateCode}
+              disabled={regenerating}
+              style={{ marginTop: 8, width: '100%', fontSize: '12px', color: 'var(--silver)' }}
+            >
+              {regenerating ? 'Generating...' : '🔄 Generate new invite code'}
+            </button>
+          )}
+
+          {/* Leave table */}
+          <div style={{ marginTop: '1rem', borderTop: '0.5px solid var(--border)', paddingTop: '0.875rem' }}>
+            {!showLeaveConfirm ? (
+              <button
+                className="btn"
+                onClick={() => setShowLeaveConfirm(true)}
+                style={{ width: '100%', fontSize: '12px', color: '#E57373', borderColor: 'rgba(229,115,115,0.2)' }}
+              >
+                {isOwner ? '🚪 Leave & close table' : '🚪 Leave this table'}
+              </button>
+            ) : (
+              <div style={{ textAlign: 'center' }}>
+                <p style={{ fontSize: '13px', color: 'var(--silver)', marginBottom: '0.75rem' }}>
+                  {isOwner
+                    ? 'Are you sure? This will remove you from the table. Others can still use the invite code.'
+                    : 'Are you sure you want to leave this table?'}
+                </p>
+                <div className="btn-row">
+                  <button
+                    className="btn"
+                    onClick={() => setShowLeaveConfirm(false)}
+                    style={{ flex: 1 }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="btn"
+                    onClick={handleLeaveTable}
+                    disabled={leaving}
+                    style={{ flex: 1, color: '#E57373', borderColor: 'rgba(229,115,115,0.2)' }}
+                  >
+                    {leaving ? 'Leaving...' : 'Yes, leave'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
           <p style={{ fontSize: '11px', color: 'var(--silver)', opacity: 0.6, marginTop: '0.75rem', fontStyle: 'italic', textAlign: 'center' }}>
             Anyone with this code can join your table.
           </p>
