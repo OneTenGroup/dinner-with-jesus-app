@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
+import { useFamily } from '../hooks/useFamily'
 import { supabase } from '../lib/supabase'
 
 const FAITH_LABELS = {
@@ -9,25 +10,39 @@ const FAITH_LABELS = {
 }
 const TRANSLATIONS = ['KJV', 'NIV', 'NLT', 'ESV', 'NKJV']
 
+function generateInviteCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  let code = ''
+  for (let i = 0; i < 6; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length))
+  }
+  return code
+}
+
 export default function SettingsPage({ members = [] }) {
-  const { profile, signOut, updateProfile } = useAuth()
+  const { user, profile, signOut, updateProfile } = useAuth()
+  const { reload } = useFamily()
   const [toast, setToast] = useState('')
   const [inviteCode, setInviteCode] = useState('')
   const [joinCode, setJoinCode] = useState('')
   const [joining, setJoining] = useState(false)
+  const [creating, setCreating] = useState(false)
   const [familyName, setFamilyName] = useState('')
+  const [newFamilyName, setNewFamilyName] = useState('')
   const [hasFamily, setHasFamily] = useState(false)
+  const [circleMode, setCircleMode] = useState('none') // 'none' | 'join' | 'create'
 
   useEffect(() => {
     loadFamilyInfo()
   }, [])
 
   async function loadFamilyInfo() {
+    if (!user?.id) return
     try {
       const { data: memberData } = await supabase
         .from('family_members')
         .select('family_id, role')
-        .eq('user_id', profile?.id)
+        .eq('user_id', user.id)
         .single()
 
       if (memberData?.family_id) {
@@ -43,8 +58,72 @@ export default function SettingsPage({ members = [] }) {
         }
       }
     } catch (err) {
-      // No family yet
+      // No family yet — expected for new users
     }
+  }
+
+  async function handleCreateFamily() {
+    if (!newFamilyName.trim()) {
+      showToast('Give your table a name first.')
+      return
+    }
+    setCreating(true)
+    try {
+      // Generate a unique invite code
+      let code = generateInviteCode()
+      // Check uniqueness (retry once if collision)
+      const { data: existing } = await supabase
+        .from('families')
+        .select('id')
+        .eq('invite_code', code)
+        .single()
+      if (existing) code = generateInviteCode()
+
+      // Create the family
+      const { data: newFamily, error: familyError } = await supabase
+        .from('families')
+        .insert({
+          name: newFamilyName.trim(),
+          invite_code: code,
+          created_by: user.id
+        })
+        .select('id, name, invite_code')
+        .single()
+
+      if (familyError || !newFamily) {
+        showToast('Could not create table. Try again.')
+        setCreating(false)
+        return
+      }
+
+      // Add creator as owner
+      const { error: memberError } = await supabase
+        .from('family_members')
+        .insert({
+          family_id: newFamily.id,
+          user_id: user.id,
+          display_name: profile?.name || 'Owner',
+          role: 'owner',
+          prayer_order: 1
+        })
+
+      if (memberError) {
+        showToast('Table created but could not add you. Try signing out and back in.')
+        setCreating(false)
+        return
+      }
+
+      setFamilyName(newFamily.name)
+      setInviteCode(newFamily.invite_code)
+      setHasFamily(true)
+      setCircleMode('none')
+      setNewFamilyName('')
+      await reload()
+      showToast(`${newFamily.name} is ready! Share your code. 🙏`)
+    } catch (err) {
+      showToast('Something went wrong. Try again.')
+    }
+    setCreating(false)
   }
 
   async function handleJoinFamily() {
@@ -54,7 +133,6 @@ export default function SettingsPage({ members = [] }) {
     }
     setJoining(true)
     try {
-      // Find family with this invite code
       const { data: familyResults, error } = await supabase
         .from('families')
         .select('id, name')
@@ -68,12 +146,11 @@ export default function SettingsPage({ members = [] }) {
       }
       const familyData = familyResults[0]
 
-      // Check not already a member
       const { data: existing } = await supabase
         .from('family_members')
         .select('id')
         .eq('family_id', familyData.id)
-        .eq('user_id', profile?.id)
+        .eq('user_id', user.id)
         .single()
 
       if (existing) {
@@ -82,19 +159,20 @@ export default function SettingsPage({ members = [] }) {
         return
       }
 
-      // Join the family
       await supabase.from('family_members').insert({
         family_id: familyData.id,
-        user_id: profile?.id,
+        user_id: user.id,
         display_name: profile?.name || 'Guest',
         role: 'member',
         prayer_order: 99
       })
 
-      showToast(`Welcome to ${familyData.name}! 🙏`)
       setJoinCode('')
       setHasFamily(true)
+      setCircleMode('none')
       await loadFamilyInfo()
+      await reload()
+      showToast(`Welcome to ${familyData.name}! 🙏`)
     } catch (err) {
       showToast('Something went wrong. Try again.')
     }
@@ -102,7 +180,7 @@ export default function SettingsPage({ members = [] }) {
   }
 
   function copyInviteCode() {
-    navigator.clipboard.writeText(joinCode || inviteCode)
+    navigator.clipboard.writeText(inviteCode)
     showToast('Invite code copied! ✓')
   }
 
@@ -154,8 +232,9 @@ export default function SettingsPage({ members = [] }) {
         </div>
       </div>
 
-      {/* Circles — Invite / Join */}
+      {/* Circles */}
       <span className="section-label">Your Circle</span>
+
       {hasFamily ? (
         <div className="card" style={{ marginBottom: '1.5rem' }}>
           <p style={{ fontSize: '13px', color: 'var(--white)', marginBottom: '0.25rem', fontWeight: 500 }}>
@@ -179,31 +258,85 @@ export default function SettingsPage({ members = [] }) {
         </div>
       ) : (
         <div className="card" style={{ marginBottom: '1.5rem' }}>
-          <p style={{ fontSize: '13px', color: 'var(--white)', marginBottom: '0.25rem', fontWeight: 500 }}>
-            Join a table
-          </p>
-          <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.875rem', fontWeight: 300 }}>
-            Enter the 6-character code from the person who invited you.
-          </p>
-          <input
-            type="text"
-            placeholder="Enter invite code"
-            value={joinCode}
-            onChange={e => setJoinCode(e.target.value.toUpperCase())}
-            maxLength={6}
-            style={{ marginBottom: 8, textAlign: 'center', fontSize: '1.2rem', letterSpacing: '0.2em', textTransform: 'uppercase' }}
-          />
-          <button
-            className="btn btn-gold"
-            onClick={handleJoinFamily}
-            disabled={joining}
-          >
-            {joining ? 'Joining...' : 'Join this table 🙏'}
-          </button>
+          {circleMode === 'none' && (
+            <>
+              <p style={{ fontSize: '13px', color: 'var(--silver)', marginBottom: '1rem', lineHeight: 1.6 }}>
+                Start your own table or join one you've been invited to.
+              </p>
+              <div className="btn-row">
+                <button className="btn btn-gold" onClick={() => setCircleMode('create')}>
+                  🍽️ Start a table
+                </button>
+                <button className="btn" onClick={() => setCircleMode('join')}>
+                  🔑 Join a table
+                </button>
+              </div>
+            </>
+          )}
+
+          {circleMode === 'create' && (
+            <>
+              <p style={{ fontSize: '13px', color: 'var(--white)', marginBottom: '0.25rem', fontWeight: 500 }}>
+                Name your table
+              </p>
+              <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.875rem', fontWeight: 300 }}>
+                Usually your family name — e.g. "The Crawfords"
+              </p>
+              <input
+                type="text"
+                placeholder="The ___ Family"
+                value={newFamilyName}
+                onChange={e => setNewFamilyName(e.target.value)}
+                maxLength={40}
+                style={{ marginBottom: 8 }}
+              />
+              <button
+                className="btn btn-gold"
+                onClick={handleCreateFamily}
+                disabled={creating}
+                style={{ marginBottom: 8 }}
+              >
+                {creating ? 'Setting the table...' : 'Create my table 🙏'}
+              </button>
+              <button className="btn-ghost" onClick={() => setCircleMode('none')} style={{ fontSize: '13px', color: 'var(--silver)', background: 'none', border: 'none', cursor: 'pointer', width: '100%', padding: '6px 0' }}>
+                Cancel
+              </button>
+            </>
+          )}
+
+          {circleMode === 'join' && (
+            <>
+              <p style={{ fontSize: '13px', color: 'var(--white)', marginBottom: '0.25rem', fontWeight: 500 }}>
+                Join a table
+              </p>
+              <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.875rem', fontWeight: 300 }}>
+                Enter the 6-character code from the person who invited you.
+              </p>
+              <input
+                type="text"
+                placeholder="Enter invite code"
+                value={joinCode}
+                onChange={e => setJoinCode(e.target.value.toUpperCase())}
+                maxLength={6}
+                style={{ marginBottom: 8, textAlign: 'center', fontSize: '1.2rem', letterSpacing: '0.2em', textTransform: 'uppercase' }}
+              />
+              <button
+                className="btn btn-gold"
+                onClick={handleJoinFamily}
+                disabled={joining}
+                style={{ marginBottom: 8 }}
+              >
+                {joining ? 'Joining...' : 'Join this table 🙏'}
+              </button>
+              <button className="btn-ghost" onClick={() => setCircleMode('none')} style={{ fontSize: '13px', color: 'var(--silver)', background: 'none', border: 'none', cursor: 'pointer', width: '100%', padding: '6px 0' }}>
+                Cancel
+              </button>
+            </>
+          )}
         </div>
       )}
 
-      {/* Your Table Members */}
+      {/* Table Members */}
       <span className="section-label">Table Members</span>
       <div className="card" style={{ marginBottom: '1.5rem' }}>
         {members && members.length > 0 ? (
@@ -217,7 +350,7 @@ export default function SettingsPage({ members = [] }) {
           ))
         ) : (
           <p style={{ fontSize: '13px', color: 'var(--silver)', fontStyle: 'italic', padding: '0.5rem 0' }}>
-            No table set up yet. Share your invite code or join an existing table above.
+            No table set up yet. Start or join a table above.
           </p>
         )}
       </div>
