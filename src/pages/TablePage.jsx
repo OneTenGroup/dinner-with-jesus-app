@@ -13,7 +13,7 @@ const PRAYERS = {
 }
 
 export default function TablePage({ activeMembers, onDiscussed, stats }) {
-  const { profile } = useAuth()
+  const { user, profile } = useAuth()
   const [verse, setVerse] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -23,6 +23,7 @@ export default function TablePage({ activeMembers, onDiscussed, stats }) {
   const [showInvite, setShowInvite] = useState(false)
   const [toast, setToast] = useState('')
   const [discussed, setDiscussed] = useState([])
+  const [prayedCount, setPrayedCount] = useState(0)
 
   const faithLevel = profile?.faith_level || 1
 
@@ -92,17 +93,22 @@ export default function TablePage({ activeMembers, onDiscussed, stats }) {
   async function saveNote() {
     if (!noteText.trim()) { showToast('Write something first.'); return }
     try {
+      // Get family_id for current user specifically
       const { data: memberData } = await supabase
         .from('family_members')
         .select('family_id')
+        .eq('user_id', user.id)
         .single()
 
-      await supabase.from('notes').insert({
+      const { error } = await supabase.from('notes').insert({
+        user_id: user.id,
         verse_ref: verse?.verse_ref,
         category: verse?.category,
         content: noteText,
         family_id: memberData?.family_id || null
       })
+
+      if (error) throw error
       showToast('Saved to your journal. ✓')
       setNoteText('')
       onDiscussed()
@@ -126,9 +132,30 @@ export default function TablePage({ activeMembers, onDiscussed, stats }) {
   }
 
   function nextPrayer() {
-    setPrayerIdx(i => i + 1)
-    const next = activeMembers[(prayerIdx + 1) % (activeMembers.length || 1)]
-    if (next) showToast(`${next} is up next. 🙏`)
+    const members = activeMembers || []
+    const newIdx = prayerIdx + 1
+    setPrayerIdx(newIdx)
+    setPrayedCount(c => c + 1)
+
+    if (members.length === 0) {
+      showToast('Prayer complete. Amen. 🙏')
+      return
+    }
+
+    const justPrayed = members[prayerIdx % members.length]
+    const upNext = members[newIdx % members.length]
+
+    if (members.length === 1) {
+      showToast(`${justPrayed} prayed. Amen. 🙏`)
+      return
+    }
+
+    // If we've gone through everyone at least once
+    if (newIdx >= members.length) {
+      showToast(`${justPrayed} prayed. Everyone has prayed tonight. 🙏`)
+    } else {
+      showToast(`${justPrayed} prayed. ${upNext} is up next. 🙏`)
+    }
   }
 
   function sendInvite() {
@@ -145,13 +172,15 @@ export default function TablePage({ activeMembers, onDiscussed, stats }) {
 
   function showToast(msg) {
     setToast(msg)
-    setTimeout(() => setToast(''), 2800)
+    setTimeout(() => setToast(''), 3000)
   }
 
   const h = new Date().getHours()
   const mealLabel = h < 11 ? '☀️ Morning verse' : h < 17 ? '🌤 Afternoon verse' : '🌙 Tonight\'s verse'
-  const currentMember = activeMembers[prayerIdx % (activeMembers.length || 1)]
-  const nextMember = activeMembers[(prayerIdx + 1) % (activeMembers.length || 1)]
+  const members = activeMembers || []
+  const currentMember = members.length > 0 ? members[prayerIdx % members.length] : null
+  const nextMember = members.length > 1 ? members[(prayerIdx + 1) % members.length] : null
+  const allPrayed = members.length > 0 && prayedCount >= members.length
 
   if (loading) return (
     <div className="loading-wrap" style={{ flex: 1 }}>
@@ -215,23 +244,46 @@ export default function TablePage({ activeMembers, onDiscussed, stats }) {
         )}
       </div>
 
+      {/* Prayer rotation */}
       <div className="card">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
           <span className="section-label" style={{ marginBottom: 0 }}>Prayer</span>
-          {nextMember && <span style={{ fontSize: '11px', color: 'var(--gold)', background: 'var(--gold-soft)', padding: '2px 10px', borderRadius: 999 }}>Next: {nextMember}</span>}
+          {nextMember && !allPrayed && (
+            <span style={{ fontSize: '11px', color: 'var(--gold)', background: 'var(--gold-soft)', padding: '2px 10px', borderRadius: 999 }}>
+              Next: {nextMember}
+            </span>
+          )}
+          {allPrayed && (
+            <span style={{ fontSize: '11px', color: 'var(--gold)', background: 'var(--gold-soft)', padding: '2px 10px', borderRadius: 999 }}>
+              Everyone prayed 🙏
+            </span>
+          )}
         </div>
+
         <p style={{ fontFamily: 'Lora, serif', fontSize: '0.95rem', color: 'var(--white)', marginBottom: '0.35rem' }}>
           {currentMember ? `${currentMember}'s turn to pray` : 'Your turn to pray'}
         </p>
         <p style={{ fontSize: '12px', color: 'var(--silver)', lineHeight: 1.5, marginBottom: '0.875rem', fontStyle: 'italic', fontWeight: 300 }}>
-          {stats.conversations < 3 ? "Not sure what to say? Read the prayer below. Next time is yours." : "Make it yours. Speak from the heart."}
+          {stats.conversations < 3
+            ? "Not sure what to say? Read the prayer below. Next time is yours."
+            : "Make it yours. Speak from the heart."}
         </p>
+
         <div style={{ background: 'var(--bg3)', borderRadius: 10, padding: '1rem', marginBottom: '0.875rem', border: '0.5px solid var(--border)' }}>
-          <p style={{ fontFamily: 'Lora, serif', fontSize: '14px', fontStyle: 'italic', color: 'var(--cream)', lineHeight: 1.8 }}>{getPrayer()}</p>
+          <p style={{ fontFamily: 'Lora, serif', fontSize: '14px', fontStyle: 'italic', color: 'var(--cream)', lineHeight: 1.8 }}>
+            {getPrayer()}
+          </p>
           <p style={{ fontSize: '11px', color: 'var(--silver)', textAlign: 'right', marginTop: '0.5rem' }}>— Amen 🙏</p>
         </div>
+
         <div className="btn-row">
-          <button className="btn btn-green" onClick={nextPrayer}>✓ We prayed together</button>
+          <button
+            className="btn btn-green"
+            onClick={nextPrayer}
+            style={{ opacity: allPrayed ? 0.6 : 1 }}
+          >
+            {allPrayed ? '🙏 All prayed' : '✓ We prayed together'}
+          </button>
           <button className="btn" onClick={() => setShowPrayer(!showPrayer)}>📖 Full prayer</button>
         </div>
       </div>
@@ -241,8 +293,11 @@ export default function TablePage({ activeMembers, onDiscussed, stats }) {
         <button className="btn btn-gold" onClick={markDiscussed}>✓ We discussed this</button>
       </div>
 
-      <button className="btn" style={{ marginBottom: '0.875rem', background: 'var(--gold-soft)', borderColor: 'var(--border-gold)', color: 'var(--gold)' }}
-        onClick={() => setShowInvite(!showInvite)}>
+      <button
+        className="btn"
+        style={{ marginBottom: '0.875rem', background: 'var(--gold-soft)', borderColor: 'var(--border-gold)', color: 'var(--gold)' }}
+        onClick={() => setShowInvite(!showInvite)}
+      >
         🪑 Invite someone to the table tonight
       </button>
 
@@ -260,20 +315,33 @@ export default function TablePage({ activeMembers, onDiscussed, stats }) {
         </div>
       )}
 
-      <div style={{ marginBottom: '5px' }}><span className="section-label">What happened at the table tonight</span></div>
-      <textarea value={noteText} onChange={e => setNoteText(e.target.value)}
+      {/* Journal note */}
+      <div style={{ marginBottom: '5px' }}>
+        <span className="section-label">What happened at the table tonight</span>
+      </div>
+      <textarea
+        value={noteText}
+        onChange={e => setNoteText(e.target.value)}
         placeholder="Something someone said that you never want to forget..."
-        style={{ minHeight: 72, resize: 'none', marginBottom: 8 }} />
-      <button className="btn btn-gold" onClick={saveNote} style={{ marginBottom: '1.5rem' }}>Save this moment</button>
+        style={{ minHeight: 72, resize: 'none', marginBottom: 8 }}
+      />
+      <button className="btn btn-gold" onClick={saveNote} style={{ marginBottom: '1.5rem' }}>
+        Save this moment
+      </button>
 
       <p style={{ textAlign: 'center', fontSize: '12px', color: 'var(--silver)', fontStyle: 'italic', paddingBottom: '1rem' }}>
-        {stats.conversations === 0 ? 'Your first conversation starts tonight.' : `Your family has shared ${stats.conversations} conversation${stats.conversations !== 1 ? 's' : ''} at this table.`}
+        {stats.conversations === 0
+          ? 'Your first conversation starts tonight.'
+          : `Your family has shared ${stats.conversations} conversation${stats.conversations !== 1 ? 's' : ''} at this table.`}
       </p>
 
+      {/* Full prayer overlay */}
       {showPrayer && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(13,24,41,0.96)', zIndex: 150, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '2rem', textAlign: 'center', backdropFilter: 'blur(8px)' }}>
           <div style={{ fontSize: '1.8rem', marginBottom: '1rem' }}>✝️</div>
-          <p style={{ fontFamily: 'Lora, serif', fontSize: '0.95rem', fontStyle: 'italic', color: 'var(--white)', lineHeight: 1.85, maxWidth: 380, marginBottom: '0.875rem' }}>{getPrayer()}</p>
+          <p style={{ fontFamily: 'Lora, serif', fontSize: '0.95rem', fontStyle: 'italic', color: 'var(--white)', lineHeight: 1.85, maxWidth: 380, marginBottom: '0.875rem' }}>
+            {getPrayer()}
+          </p>
           <p style={{ fontSize: '13px', color: 'var(--silver)', marginBottom: '2rem' }}>— Amen 🙏</p>
           <button className="btn btn-gold" style={{ width: 'auto', padding: '11px 2rem' }} onClick={() => setShowPrayer(false)}>Close</button>
         </div>
