@@ -1,12 +1,119 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
+import { supabase } from '../lib/supabase'
 
-const FAITH_LABELS = { 1: 'Seeker — gentle questions', 2: 'Growing — one layer deeper', 3: 'Deep — challenging & application' }
-const TRANSLATIONS = ['NIV', 'NLT', 'KJV', 'ESV', 'NKJV']
+const FAITH_LABELS = {
+  1: 'Seeker — gentle questions',
+  2: 'Growing — one layer deeper',
+  3: 'Deep — challenging & application'
+}
+const TRANSLATIONS = ['KJV', 'NIV', 'NLT', 'ESV', 'NKJV']
 
 export default function SettingsPage({ members = [] }) {
   const { profile, signOut, updateProfile } = useAuth()
   const [toast, setToast] = useState('')
+  const [inviteCode, setInviteCode] = useState('')
+  const [joinCode, setJoinCode] = useState('')
+  const [joining, setJoining] = useState(false)
+  const [familyName, setFamilyName] = useState('')
+  const [hasFamily, setHasFamily] = useState(false)
+
+  useEffect(() => {
+    loadFamilyInfo()
+  }, [])
+
+  async function loadFamilyInfo() {
+    try {
+      const { data: memberData } = await supabase
+        .from('family_members')
+        .select('family_id, role')
+        .eq('user_id', profile?.id)
+        .single()
+
+      if (memberData?.family_id) {
+        setHasFamily(true)
+        const { data: familyData } = await supabase
+          .from('families')
+          .select('name, invite_code')
+          .eq('id', memberData.family_id)
+          .single()
+        if (familyData) {
+          setFamilyName(familyData.name)
+          setInviteCode(familyData.invite_code || '')
+        }
+      }
+    } catch (err) {
+      // No family yet
+    }
+  }
+
+  async function handleJoinFamily() {
+    if (!joinCode.trim() || joinCode.length !== 6) {
+      showToast('Enter a valid 6-character code.')
+      return
+    }
+    setJoining(true)
+    try {
+      // Find family with this invite code
+      const { data: familyData, error } = await supabase
+        .from('families')
+        .select('id, name')
+        .eq('invite_code', joinCode.toUpperCase())
+        .single()
+
+      if (error || !familyData) {
+        showToast('Code not found. Check and try again.')
+        setJoining(false)
+        return
+      }
+
+      // Check not already a member
+      const { data: existing } = await supabase
+        .from('family_members')
+        .select('id')
+        .eq('family_id', familyData.id)
+        .eq('user_id', profile?.id)
+        .single()
+
+      if (existing) {
+        showToast('You are already at this table!')
+        setJoining(false)
+        return
+      }
+
+      // Join the family
+      await supabase.from('family_members').insert({
+        family_id: familyData.id,
+        user_id: profile?.id,
+        display_name: profile?.name || 'Guest',
+        role: 'member',
+        prayer_order: 99
+      })
+
+      showToast(`Welcome to ${familyData.name}! 🙏`)
+      setJoinCode('')
+      setHasFamily(true)
+      await loadFamilyInfo()
+    } catch (err) {
+      showToast('Something went wrong. Try again.')
+    }
+    setJoining(false)
+  }
+
+  function copyInviteCode() {
+    navigator.clipboard.writeText(joinCode || inviteCode)
+    showToast('Invite code copied! ✓')
+  }
+
+  function shareInviteCode() {
+    const msg = `Join my table on Dinner with Jesus!\n\nEnter this code in the app Settings:\n${inviteCode}\n\nDownload at flippingtables.ai`
+    if (navigator.share) {
+      navigator.share({ text: msg })
+    } else {
+      navigator.clipboard.writeText(msg)
+      showToast('Invite message copied! ✓')
+    }
+  }
 
   async function handleTranslation(t) {
     await updateProfile({ preferred_translation: t })
@@ -15,7 +122,7 @@ export default function SettingsPage({ members = [] }) {
 
   async function handleFaithLevel(level) {
     await updateProfile({ faith_level: level })
-    showToast(`Faith level updated ✓`)
+    showToast('Faith level updated ✓')
   }
 
   function showToast(msg) {
@@ -32,7 +139,7 @@ export default function SettingsPage({ members = [] }) {
         Your table, your way.
       </p>
 
-      {/* Profile */}
+      {/* Account */}
       <span className="section-label">Your Account</span>
       <div className="card" style={{ marginBottom: '1.5rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -46,56 +153,57 @@ export default function SettingsPage({ members = [] }) {
         </div>
       </div>
 
-      {/* Faith level */}
-      <span className="section-label">Faith Journey Level</span>
-      <div style={{ marginBottom: '1.5rem' }}>
-        {[1, 2, 3].map(level => (
-          <div
-            key={level}
-            className="card"
-            style={{ marginBottom: 6, cursor: 'pointer', borderColor: profile?.faith_level === level ? 'var(--gold)' : 'var(--border)', background: profile?.faith_level === level ? 'var(--gold-soft)' : 'var(--bg2)' }}
-            onClick={() => handleFaithLevel(level)}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div>
-                <div style={{ fontSize: '14px', color: 'var(--cream)' }}>Level {level}</div>
-                <div style={{ fontSize: '12px', color: 'var(--silver)', marginTop: 2 }}>{FAITH_LABELS[level]}</div>
-              </div>
-              {profile?.faith_level === level && (
-                <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--gold)' }} />
-              )}
+      {/* Circles — Invite / Join */}
+      <span className="section-label">Your Circle</span>
+      {hasFamily ? (
+        <div className="card" style={{ marginBottom: '1.5rem' }}>
+          <p style={{ fontSize: '13px', color: 'var(--white)', marginBottom: '0.25rem', fontWeight: 500 }}>
+            {familyName || 'Your Table'}
+          </p>
+          <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '1rem', fontWeight: 300 }}>
+            Share this code so others can join your table.
+          </p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--bg3)', borderRadius: 10, padding: '0.875rem 1rem', border: '0.5px solid var(--border-gold)', marginBottom: '0.875rem' }}>
+            <div style={{ fontFamily: 'Lora, serif', fontSize: '1.8rem', fontWeight: 600, color: 'var(--gold)', letterSpacing: '0.2em', flex: 1, textAlign: 'center' }}>
+              {inviteCode || '------'}
             </div>
           </div>
-        ))}
-        <p style={{ fontSize: '11px', color: 'var(--silver)', opacity: 0.6, marginTop: '0.5rem', fontStyle: 'italic' }}>
-          All 3 question levels are shown at the table — your level sets which appears first.
-        </p>
-      </div>
-
-      {/* Translation */}
-      <span className="section-label">Bible Translation</span>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: '1.5rem' }}>
-        {TRANSLATIONS.map(t => (
+          <div className="btn-row">
+            <button className="btn" onClick={copyInviteCode}>📋 Copy code</button>
+            <button className="btn btn-gold" onClick={shareInviteCode}>📤 Share invite</button>
+          </div>
+          <p style={{ fontSize: '11px', color: 'var(--silver)', opacity: 0.6, marginTop: '0.75rem', fontStyle: 'italic', textAlign: 'center' }}>
+            Anyone with this code can join your table.
+          </p>
+        </div>
+      ) : (
+        <div className="card" style={{ marginBottom: '1.5rem' }}>
+          <p style={{ fontSize: '13px', color: 'var(--white)', marginBottom: '0.25rem', fontWeight: 500 }}>
+            Join a table
+          </p>
+          <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.875rem', fontWeight: 300 }}>
+            Enter the 6-character code from the person who invited you.
+          </p>
+          <input
+            type="text"
+            placeholder="Enter invite code"
+            value={joinCode}
+            onChange={e => setJoinCode(e.target.value.toUpperCase())}
+            maxLength={6}
+            style={{ marginBottom: 8, textAlign: 'center', fontSize: '1.2rem', letterSpacing: '0.2em', textTransform: 'uppercase' }}
+          />
           <button
-            key={t}
-            onClick={() => handleTranslation(t)}
-            style={{
-              padding: '6px 14px',
-              borderRadius: 999,
-              border: `0.5px solid ${profile?.preferred_translation === t ? 'var(--gold)' : 'var(--border)'}`,
-              background: profile?.preferred_translation === t ? 'var(--gold-soft)' : 'var(--bg3)',
-              color: profile?.preferred_translation === t ? 'var(--gold)' : 'var(--silver)',
-              fontSize: '13px',
-              cursor: 'pointer'
-            }}
+            className="btn btn-gold"
+            onClick={handleJoinFamily}
+            disabled={joining}
           >
-            {t}
+            {joining ? 'Joining...' : 'Join this table 🙏'}
           </button>
-        ))}
-      </div>
+        </div>
+      )}
 
-      {/* Your Table */}
-      <span className="section-label">Your Table Members</span>
+      {/* Your Table Members */}
+      <span className="section-label">Table Members</span>
       <div className="card" style={{ marginBottom: '1.5rem' }}>
         {members && members.length > 0 ? (
           members.map(m => (
@@ -108,13 +216,47 @@ export default function SettingsPage({ members = [] }) {
           ))
         ) : (
           <p style={{ fontSize: '13px', color: 'var(--silver)', fontStyle: 'italic', padding: '0.5rem 0' }}>
-            No table set up yet. Circles feature coming soon — you'll be able to invite your family and join their table.
+            No table set up yet. Share your invite code or join an existing table above.
           </p>
         )}
-        <p style={{ fontSize: '11px', color: 'var(--silver)', opacity: 0.6, marginTop: '0.75rem', fontStyle: 'italic' }}>
-          Full table management coming with Circles feature.
+      </div>
+
+      {/* Faith Level */}
+      <span className="section-label">Faith Journey Level</span>
+      <div style={{ marginBottom: '1.5rem' }}>
+        {[1, 2, 3].map(level => (
+          <div key={level} className="card"
+            style={{ marginBottom: 6, cursor: 'pointer', borderColor: profile?.faith_level === level ? 'var(--gold)' : 'var(--border)', background: profile?.faith_level === level ? 'var(--gold-soft)' : 'var(--bg2)' }}
+            onClick={() => handleFaithLevel(level)}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ fontSize: '14px', color: 'var(--cream)' }}>Level {level}</div>
+                <div style={{ fontSize: '12px', color: 'var(--silver)', marginTop: 2 }}>{FAITH_LABELS[level]}</div>
+              </div>
+              {profile?.faith_level === level && (
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--gold)' }} />
+              )}
+            </div>
+          </div>
+        ))}
+        <p style={{ fontSize: '11px', color: 'var(--silver)', opacity: 0.6, marginTop: '0.5rem', fontStyle: 'italic' }}>
+          All 3 question levels shown at the table — your level sets which appears first.
         </p>
       </div>
+
+      {/* Translation */}
+      <span className="section-label">Bible Translation</span>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: '0.5rem' }}>
+        {TRANSLATIONS.map(t => (
+          <button key={t} onClick={() => handleTranslation(t)}
+            style={{ padding: '6px 14px', borderRadius: 999, border: `0.5px solid ${profile?.preferred_translation === t ? 'var(--gold)' : 'var(--border)'}`, background: profile?.preferred_translation === t ? 'var(--gold-soft)' : 'var(--bg3)', color: profile?.preferred_translation === t ? 'var(--gold)' : 'var(--silver)', fontSize: '13px', cursor: 'pointer' }}>
+            {t}
+          </button>
+        ))}
+      </div>
+      <p style={{ fontSize: '11px', color: 'var(--silver)', opacity: 0.6, marginBottom: '1.5rem', fontStyle: 'italic' }}>
+        KJV is fully loaded. Other translations coming soon.
+      </p>
 
       {/* About */}
       <span className="section-label">About</span>
@@ -123,17 +265,17 @@ export default function SettingsPage({ members = [] }) {
         <div style={{ fontSize: '12px', color: 'var(--silver)' }}>A table for every family · 1:10</div>
         <div style={{ height: '0.5px', background: 'var(--border)', margin: '0.875rem 0' }} />
         <div style={{ fontSize: '12px', color: 'var(--silver)', fontStyle: 'italic', lineHeight: 1.7 }}>
-          "So that you may live a life worthy of the Lord and please him in every way: bearing fruit in every good work, growing in the knowledge of God."
+          "That ye might walk worthy of the Lord unto all pleasing, being fruitful in every good work, and increasing in the knowledge of God."
         </div>
         <div style={{ fontSize: '11px', color: 'var(--gold)', marginTop: '0.5rem' }}>Colossians 1:10</div>
+        <div style={{ height: '0.5px', background: 'var(--border)', margin: '0.875rem 0' }} />
+        <div style={{ fontSize: '11px', color: 'var(--silver)', opacity: 0.6 }}>
+          Built by <span style={{ color: 'var(--gold)' }}>OneTen Group</span> · onetengroup.ai
+        </div>
       </div>
 
       {/* Sign out */}
-      <button
-        className="btn"
-        style={{ marginBottom: '2rem', color: '#E57373', borderColor: 'rgba(229,115,115,0.2)' }}
-        onClick={signOut}
-      >
+      <button className="btn" style={{ marginBottom: '2rem', color: '#E57373', borderColor: 'rgba(229,115,115,0.2)' }} onClick={signOut}>
         Sign out
       </button>
 
