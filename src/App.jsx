@@ -10,6 +10,9 @@ import StoryPage from './pages/StoryPage'
 import JournalPage from './pages/JournalPage'
 import SettingsPage from './pages/SettingsPage'
 import KendylScene from './components/KendylScene'
+import AdminPage from './pages/AdminPage'
+
+const ADMIN_USER_ID = '28356e7e-067c-49a8-81a2-095576c432a7'
 
 function ResetPasswordScreen({ onDone }) {
   const [password, setPassword] = useState('')
@@ -86,6 +89,8 @@ export default function App() {
   const [onboardingDone, setOnboardingDone] = useState(false)
   const [showKendyl, setShowKendyl] = useState(false)
   const [isPasswordReset, setIsPasswordReset] = useState(false)
+  const [showAdmin, setShowAdmin] = useState(false)
+  const isAdmin = user?.id === ADMIN_USER_ID
 
   useEffect(() => {
     // Detect password reset token in URL
@@ -148,6 +153,7 @@ export default function App() {
 
   return (
     <div className="app-shell">
+      {showAdmin && <AdminPage onClose={() => setShowAdmin(false)} />}
       {activeTab === 'home' && (
         <HomePage
           onGoToTable={goToTable}
@@ -166,7 +172,7 @@ export default function App() {
         />
       )}
       {activeTab === 'journal' && <JournalPage />}
-      {activeTab === 'settings' && <SettingsPage members={members || []} />}
+      {activeTab === 'settings' && <SettingsPage members={members || []} isAdmin={isAdmin} onOpenAdmin={() => setShowAdmin(true)} />}
       <nav className="bottom-nav">
         {tabs.map(t => (
           <button
