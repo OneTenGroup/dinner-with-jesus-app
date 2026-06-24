@@ -74,6 +74,8 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
   const [timeLoading, setTimeLoading] = useState(false)
   const [timeLoaded, setTimeLoaded] = useState(false)
   const [selectedTimeVerse, setSelectedTimeVerse] = useState(null)
+  const [announcement, setAnnouncement] = useState(null)
+  const [bannerDismissed, setBannerDismissed] = useState(false)
 
   const [selectedFeeling, setSelectedFeeling] = useState(null)
   const [feelingVerse, setFeelingVerse] = useState(null)
@@ -90,8 +92,34 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
     setGreeting(pool[Math.floor(Math.random() * pool.length)])
     updateTime()
     const timer = setInterval(updateTime, 30000)
+    loadAnnouncement()
     return () => clearInterval(timer)
   }, [])
+
+  async function loadAnnouncement() {
+    try {
+      const dismissed = localStorage.getItem('dwj_announcement_dismissed')
+      const { data } = await supabase
+        .from('announcements')
+        .select('*')
+        .eq('active', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+      if (data && data.length > 0) {
+        const ann = data[0]
+        if (dismissed !== ann.id) {
+          setAnnouncement(ann)
+        }
+      }
+    } catch (err) {}
+  }
+
+  function dismissBanner() {
+    if (announcement) {
+      localStorage.setItem('dwj_announcement_dismissed', announcement.id)
+    }
+    setBannerDismissed(true)
+  }
 
   function updateTime() {
     const now = new Date()
@@ -172,6 +200,36 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
 
   return (
     <div className="screen" style={{ paddingTop: '1rem' }}>
+
+      {/* Announcement Banner */}
+      {announcement && !bannerDismissed && (
+        <div style={{
+          position: 'sticky',
+          top: 0,
+          zIndex: 50,
+          background: 'linear-gradient(135deg, #1a2a1a, #1a2a1a)',
+          border: '0.5px solid rgba(76,175,118,0.4)',
+          borderRadius: '10px',
+          padding: '0.75rem 1rem',
+          marginBottom: '1rem',
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: '10px',
+          background: 'var(--bg3)',
+          borderLeft: '3px solid var(--gold)',
+        }}>
+          <span style={{ fontSize: '1rem', flexShrink: 0, marginTop: '1px' }}>📣</span>
+          <p style={{ fontSize: '13px', color: 'var(--cream)', lineHeight: 1.6, flex: 1, margin: 0 }}>
+            {announcement.message}
+          </p>
+          <button
+            onClick={dismissBanner}
+            style={{ background: 'none', border: 'none', color: 'var(--silver)', fontSize: '16px', cursor: 'pointer', padding: '0 0 0 8px', flexShrink: 0, lineHeight: 1 }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Brand */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: '1.25rem' }}>
