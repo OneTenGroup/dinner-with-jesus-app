@@ -1,4 +1,3 @@
-import KendylScene from './components/KendylScene'
 import { useState, useEffect } from 'react'
 import { useAuth } from './context/AuthContext'
 import { useFamily } from './hooks/useFamily'
@@ -9,6 +8,7 @@ import TablePage from './pages/TablePage'
 import PrayPage from './pages/PrayPage'
 import JournalPage from './pages/JournalPage'
 import SettingsPage from './pages/SettingsPage'
+import KendylScene from './components/KendylScene'
 
 export default function App() {
   const { user, profile, loading } = useAuth()
@@ -19,12 +19,18 @@ export default function App() {
   const [stats, setStats] = useState({ conversations: 0 })
   const [onboardingDone, setOnboardingDone] = useState(false)
   const [showKendyl, setShowKendyl] = useState(false)
+
   // Sync activeMembers when family loads
   useEffect(() => {
     if (members.length > 0) {
       setActiveMembers(members)
     }
   }, [members])
+
+  // Show Kendyl's scene every time user opens the app
+  useEffect(() => {
+    if (user) setShowKendyl(true)
+  }, [user])
 
   if (loading || familyLoading) {
     return (
@@ -40,6 +46,10 @@ export default function App() {
 
   if (user && profile && !profile.onboarding_complete && !onboardingDone) {
     return <OnboardingPage onComplete={() => setOnboardingDone(true)} />
+  }
+
+  if (showKendyl) {
+    return <KendylScene onEnter={() => setShowKendyl(false)} />
   }
 
   function goToTable() { setActiveTab('table') }
