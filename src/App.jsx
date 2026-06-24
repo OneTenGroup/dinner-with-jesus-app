@@ -5,7 +5,7 @@ import AuthPage from './pages/AuthPage'
 import OnboardingPage from './pages/OnboardingPage'
 import HomePage from './pages/HomePage'
 import TablePage from './pages/TablePage'
-import PrayPage from './pages/PrayPage'
+import StoryPage from './pages/StoryPage'
 import JournalPage from './pages/JournalPage'
 import SettingsPage from './pages/SettingsPage'
 import KendylScene from './components/KendylScene'
@@ -15,19 +15,16 @@ export default function App() {
   const { members, loading: familyLoading } = useFamily()
   const [activeTab, setActiveTab] = useState('home')
   const [activeMembers, setActiveMembers] = useState([])
-  const [initialFeeling, setInitialFeeling] = useState(null)
   const [stats, setStats] = useState({ conversations: 0 })
   const [onboardingDone, setOnboardingDone] = useState(false)
   const [showKendyl, setShowKendyl] = useState(false)
 
-  // Sync activeMembers when family loads
   useEffect(() => {
     if (members.length > 0) {
       setActiveMembers(members)
     }
   }, [members])
 
-  // Show Kendyl's scene every time user opens the app
   useEffect(() => {
     if (user) setShowKendyl(true)
   }, [user])
@@ -53,14 +50,13 @@ export default function App() {
   }
 
   function goToTable() { setActiveTab('table') }
-  function goToPray(feeling) { setInitialFeeling(feeling); setActiveTab('pray') }
   function onDiscussed() { setStats(s => ({ ...s, conversations: s.conversations + 1 })) }
 
   const tabs = [
     { id: 'home', icon: '🏠', label: 'Home' },
-    { id: 'pray', icon: '🙏', label: 'Pray' },
+    { id: 'story', icon: '📖', label: 'Story 1:10' },
     { id: 'table', icon: '🍽', label: 'Table' },
-    { id: 'journal', icon: '📖', label: 'Journal' },
+    { id: 'journal', icon: '📓', label: 'Journal' },
     { id: 'settings', icon: '⚙️', label: 'Settings' },
   ]
 
@@ -69,13 +65,13 @@ export default function App() {
       {activeTab === 'home' && (
         <HomePage
           onGoToTable={goToTable}
-          onGoToPray={goToPray}
           activeMembers={activeMembers}
           setActiveMembers={setActiveMembers}
           allMembers={members}
           stats={stats}
         />
       )}
+      {activeTab === 'story' && <StoryPage />}
       {activeTab === 'table' && (
         <TablePage
           activeMembers={activeMembers.length > 0 ? activeMembers : members}
@@ -83,7 +79,6 @@ export default function App() {
           stats={stats}
         />
       )}
-      {activeTab === 'pray' && <PrayPage initialFeeling={initialFeeling} />}
       {activeTab === 'journal' && <JournalPage />}
       {activeTab === 'settings' && <SettingsPage members={members || []} />}
       <nav className="bottom-nav">
