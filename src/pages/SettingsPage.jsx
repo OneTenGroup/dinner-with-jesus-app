@@ -19,7 +19,7 @@ function generateInviteCode() {
   return code
 }
 
-export default function SettingsPage({ members = [] }) {
+export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmin }) {
   const { user, profile, signOut, updateProfile } = useAuth()
   const { reload } = useFamily()
   const [toast, setToast] = useState('')
@@ -521,6 +521,17 @@ export default function SettingsPage({ members = [] }) {
           Built by <span style={{ color: 'var(--gold)' }}>OneTen Group</span> · onetengroup.ai
         </div>
       </div>
+
+      {/* Admin — only visible to Steve */}
+      {isAdmin && (
+        <button
+          className="btn"
+          style={{ marginBottom: '0.75rem', color: 'var(--gold)', borderColor: 'var(--border-gold)', background: 'var(--gold-soft)' }}
+          onClick={onOpenAdmin}
+        >
+          ⚙️ Admin Dashboard
+        </button>
+      )}
 
       {/* Sign out */}
       <button className="btn" style={{ marginBottom: '2rem', color: '#E57373', borderColor: 'rgba(229,115,115,0.2)' }} onClick={signOut}>
