@@ -37,6 +37,33 @@ const FEELINGS = [
   { emoji: '🌟', label: 'Direction', key: 'direction' },
 ]
 
+const sectionStyle = {
+  background: 'var(--bg2)',
+  border: '0.5px solid var(--border-gold)',
+  borderRadius: '12px',
+  padding: '1.25rem',
+  marginBottom: '1rem',
+}
+
+const sectionTitleStyle = {
+  fontFamily: 'Lora, serif',
+  fontSize: '1rem',
+  fontWeight: 600,
+  color: 'var(--white)',
+  letterSpacing: '0.02em',
+  marginBottom: '0.35rem',
+  display: 'block',
+}
+
+const sectionSubStyle = {
+  fontSize: '13px',
+  color: 'var(--silver2)',
+  fontStyle: 'italic',
+  fontWeight: 300,
+  marginBottom: '1rem',
+  lineHeight: 1.5,
+}
+
 export default function HomePage({ onGoToTable, activeMembers, setActiveMembers, allMembers, stats }) {
   const { profile } = useAuth()
   const [greeting, setGreeting] = useState({ msg: 'Welcome.', sub: '' })
@@ -46,7 +73,6 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
   const [timeLoaded, setTimeLoaded] = useState(false)
   const [selectedTimeVerse, setSelectedTimeVerse] = useState(null)
 
-  // Feeling popup
   const [selectedFeeling, setSelectedFeeling] = useState(null)
   const [feelingVerse, setFeelingVerse] = useState(null)
   const [feelingVerseIdx, setFeelingVerseIdx] = useState(0)
@@ -111,11 +137,8 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
         .select('*')
         .eq('feeling_key', key)
         .order('display_order')
-      if (data && data.length > 0) {
-        setFeelingVerse(data[0])
-      } else {
-        setFeelingVerse(null)
-      }
+      if (data && data.length > 0) setFeelingVerse(data[0])
+      else setFeelingVerse(null)
     } catch (err) {
       setFeelingVerse(null)
     }
@@ -132,20 +155,24 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
         .select('*')
         .eq('feeling_key', selectedFeeling)
         .order('display_order')
-      if (data && data.length > 0) {
-        setFeelingVerse(data[newIdx % data.length])
-      }
+      if (data && data.length > 0) setFeelingVerse(data[newIdx % data.length])
     } catch (err) {}
     setFeelingLoading(false)
   }
 
   const feeling = FEELINGS.find(f => f.key === selectedFeeling)
 
+  const conversationMsg = stats.conversations === 0
+    ? "Your first conversation hasn't happened yet. Tonight could be the night. 🙏"
+    : stats.conversations === 1
+    ? "Your family has shared 1 conversation at this table. Keep going."
+    : `Your family has shared ${stats.conversations} conversations at this table. That's ${stats.conversations} nights that mattered.`
+
   return (
     <div className="screen" style={{ paddingTop: '1rem' }}>
 
       {/* Brand */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: '1.25rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '1.25rem' }}>
         <div className="cross" style={{ width: 28, height: 28 }}></div>
         <div style={{ fontFamily: 'Lora, serif', fontSize: '1.05rem', fontWeight: 600, color: 'var(--white)' }}>
           Dinner with <span style={{ color: 'var(--gold)' }}>Jesus</span>
@@ -153,23 +180,25 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
       </div>
 
       {/* Greeting */}
-      <div className="card card-gold" style={{ marginBottom: '1rem' }}>
+      <div style={{ ...sectionStyle, background: 'var(--bg2)' }}>
         <div style={{ fontFamily: 'Lora, serif', fontSize: '1rem', color: 'var(--white)', lineHeight: 1.5, marginBottom: 4 }}>
           {greeting.msg}
         </div>
-        <div style={{ fontSize: '13px', color: 'var(--silver)', fontStyle: 'italic', fontWeight: 300 }}>
+        <div style={{ fontSize: '13px', color: 'var(--silver2)', fontStyle: 'italic', fontWeight: 300 }}>
           {greeting.sub}
         </div>
       </div>
 
       {/* Tonight's Table */}
-      <div className="card" style={{ marginBottom: '1rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-          <span className="section-label" style={{ marginBottom: 0 }}>Tonight's Table</span>
+      <div style={sectionStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
+          <span style={sectionTitleStyle}>Tonight's Table</span>
           {familyMembers.length > 0 && (
             <span style={{ fontSize: '11px', color: 'var(--silver)', fontWeight: 300 }}>Tap to remove</span>
           )}
         </div>
+        <p style={sectionSubStyle}>The table is set. He's already here.</p>
+
         {familyMembers.length === 0 ? (
           <p style={{ fontSize: '13px', color: 'var(--silver)', fontStyle: 'italic', marginBottom: '1rem', lineHeight: 1.6 }}>
             Your table is empty. Go to Settings to create or join a table.
@@ -194,67 +223,63 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
       </div>
 
       {/* Time Verse */}
-      <div style={{ marginBottom: '1rem' }}>
-        <div style={{ background: 'var(--bg2)', border: '0.5px solid var(--border-gold)', borderRadius: 14, overflow: 'hidden' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem 1rem 0.75rem', borderBottom: timeLoaded ? '0.5px solid var(--border)' : 'none' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ width: 40, height: 40, borderRadius: 10, background: 'var(--gold-soft)', border: '0.5px solid var(--border-gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', flexShrink: 0 }}>
-                🕐
-              </div>
-              <div>
-                <div style={{ fontFamily: 'Lora, serif', fontSize: '0.95rem', color: 'var(--white)', fontWeight: 600 }}>
-                  Your verse for this moment
-                </div>
-                <div style={{ fontSize: '11px', color: 'var(--silver)', fontWeight: 300, marginTop: 1 }}>
-                  God speaks through Scripture — even in the numbers
-                </div>
-              </div>
+      <div style={sectionStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 36, height: 36, borderRadius: 8, background: 'var(--gold-soft)', border: '0.5px solid var(--border-gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem', flexShrink: 0 }}>
+              🕐
             </div>
-            <div style={{ fontFamily: 'Lora, serif', fontSize: '1.4rem', fontWeight: 600, color: 'var(--gold)', letterSpacing: '0.05em', flexShrink: 0, marginLeft: 8 }}>
-              {currentTime}
+            <div>
+              <span style={sectionTitleStyle}>Your verse for this moment</span>
+              <p style={{ ...sectionSubStyle, marginBottom: 0 }}>God speaks through Scripture — even in the numbers</p>
             </div>
           </div>
-          <div style={{ padding: '0.875rem 1rem 1rem' }}>
-            {!timeLoaded ? (
-              <button className="btn btn-gold" onClick={loadTimeVerses} disabled={timeLoading} style={{ width: '100%', fontSize: '14px', padding: '12px' }}>
-                {timeLoading ? 'Finding your verses...' : `Find verses for ${currentTime}`}
-              </button>
-            ) : timeVerses.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '0.75rem 0' }}>
-                <p style={{ fontSize: '13px', color: 'var(--silver)', lineHeight: 1.7, marginBottom: '0.75rem' }}>
-                  No verses found for {currentTime}.<br />
-                  <span style={{ color: 'var(--gold)', fontStyle: 'italic' }}>Try again at a different moment.</span>
-                </p>
-                <button className="btn" onClick={() => { setTimeLoaded(false); setTimeVerses([]) }}>Try current time</button>
-              </div>
-            ) : (
-              <div>
-                <p style={{ fontSize: '11px', letterSpacing: '0.15em', textTransform: 'uppercase', color: 'var(--silver)', marginBottom: '0.75rem' }}>
-                  {timeVerses.length} verse{timeVerses.length !== 1 ? 's' : ''} across Scripture for {currentTime}
-                </p>
-                {timeVerses.map(v => (
-                  <div key={v.id} onClick={() => setSelectedTimeVerse(selectedTimeVerse?.id === v.id ? null : v)}
-                    style={{ padding: '0.875rem', background: selectedTimeVerse?.id === v.id ? 'var(--gold-soft)' : 'var(--bg3)', borderRadius: 10, border: `0.5px solid ${selectedTimeVerse?.id === v.id ? 'var(--border-gold)' : 'var(--border)'}`, marginBottom: 8, cursor: 'pointer', transition: 'all 0.15s' }}>
-                    <div style={{ fontSize: '11px', fontWeight: 500, color: 'var(--gold)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '0.35rem' }}>
-                      {v.book} {v.chapter}:{v.verse}
-                    </div>
-                    <div style={{ fontFamily: 'Lora, serif', fontSize: '0.88rem', fontStyle: 'italic', color: 'var(--white)', lineHeight: 1.7 }}>
-                      "{v.text_kjv}"
-                    </div>
+          <div style={{ fontFamily: 'Lora, serif', fontSize: '1.4rem', fontWeight: 600, color: 'var(--gold)', letterSpacing: '0.05em', flexShrink: 0, marginLeft: 8 }}>
+            {currentTime}
+          </div>
+        </div>
+
+        <div style={{ marginTop: '1rem' }}>
+          {!timeLoaded ? (
+            <button className="btn btn-gold" onClick={loadTimeVerses} disabled={timeLoading} style={{ width: '100%', fontSize: '14px', padding: '12px' }}>
+              {timeLoading ? 'Finding your verses...' : `Find verses for ${currentTime}`}
+            </button>
+          ) : timeVerses.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '0.75rem 0' }}>
+              <p style={{ fontSize: '13px', color: 'var(--silver)', lineHeight: 1.7, marginBottom: '0.75rem' }}>
+                No verses found for {currentTime}.<br />
+                <span style={{ color: 'var(--gold)', fontStyle: 'italic' }}>Try again at a different moment.</span>
+              </p>
+              <button className="btn" onClick={() => { setTimeLoaded(false); setTimeVerses([]) }}>Try current time</button>
+            </div>
+          ) : (
+            <div>
+              <p style={{ fontSize: '11px', letterSpacing: '0.15em', textTransform: 'uppercase', color: 'var(--silver)', marginBottom: '0.75rem' }}>
+                {timeVerses.length} verse{timeVerses.length !== 1 ? 's' : ''} across Scripture for {currentTime}
+              </p>
+              {timeVerses.map(v => (
+                <div key={v.id} onClick={() => setSelectedTimeVerse(selectedTimeVerse?.id === v.id ? null : v)}
+                  style={{ padding: '0.875rem', background: selectedTimeVerse?.id === v.id ? 'var(--gold-soft)' : 'var(--bg3)', borderRadius: 10, border: `0.5px solid ${selectedTimeVerse?.id === v.id ? 'var(--border-gold)' : 'var(--border)'}`, marginBottom: 8, cursor: 'pointer', transition: 'all 0.15s' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 500, color: 'var(--gold)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '0.35rem' }}>
+                    {v.book} {v.chapter}:{v.verse}
                   </div>
-                ))}
-                <button className="btn" style={{ marginTop: '0.25rem' }} onClick={() => { setTimeLoaded(false); setTimeVerses([]); setSelectedTimeVerse(null) }}>
-                  ↺ Refresh for current time
-                </button>
-              </div>
-            )}
-          </div>
+                  <div style={{ fontFamily: 'Lora, serif', fontSize: '0.88rem', fontStyle: 'italic', color: 'var(--white)', lineHeight: 1.7 }}>
+                    "{v.text_kjv}"
+                  </div>
+                </div>
+              ))}
+              <button className="btn" style={{ marginTop: '0.25rem' }} onClick={() => { setTimeLoaded(false); setTimeVerses([]); setSelectedTimeVerse(null) }}>
+                ↺ Refresh for current time
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Feelings Grid */}
-      <div className="card" style={{ marginBottom: '1rem' }}>
-        <span className="section-label">Need a moment with God right now?</span>
+      <div style={sectionStyle}>
+        <span style={sectionTitleStyle}>Need a moment with God right now?</span>
+        <p style={sectionSubStyle}>Pick what you're actually feeling. He already knows anyway.</p>
         <div className="feelings-grid">
           {FEELINGS.map(f => (
             <button key={f.key} className="feeling-btn" onClick={() => selectFeeling(f.key)}>
@@ -265,14 +290,13 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
         </div>
       </div>
 
-      {/* Memory strip */}
-      <p style={{ textAlign: 'center', fontSize: '12px', color: 'var(--silver)', fontStyle: 'italic', fontWeight: 300, paddingBottom: '1rem' }}>
-        {stats.conversations === 0
-          ? 'Your first conversation starts tonight.'
-          : stats.conversations === 1
-          ? 'Your family has shared 1 conversation at this table.'
-          : `Your family has shared ${stats.conversations} conversations at this table.`}
-      </p>
+      {/* Conversations — prominent */}
+      <div style={{ ...sectionStyle, textAlign: 'center', background: 'var(--bg3)' }}>
+        <div style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>🍽️</div>
+        <p style={{ fontFamily: 'Lora, serif', fontSize: '15px', color: 'var(--white)', lineHeight: 1.7, fontStyle: 'italic' }}>
+          {conversationMsg}
+        </p>
+      </div>
 
       {/* OneTen credit */}
       <p style={{ textAlign: 'center', fontSize: '11px', color: 'var(--silver)', opacity: 0.5, paddingBottom: '1.5rem' }}>
@@ -284,12 +308,9 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(13,24,41,0.96)', zIndex: 150, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '1.5rem', backdropFilter: 'blur(8px)' }}
           onClick={e => { if (e.target === e.currentTarget) setShowFeelingPopup(false) }}>
           <div style={{ background: 'var(--bg2)', borderRadius: 16, border: '0.5px solid var(--border-gold)', padding: '1.5rem', width: '100%', maxWidth: '420px', maxHeight: '85vh', overflowY: 'auto' }}>
-
-            {/* Close */}
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.5rem' }}>
               <button onClick={() => setShowFeelingPopup(false)} style={{ background: 'none', border: 'none', color: 'var(--silver)', fontSize: '20px', cursor: 'pointer', padding: '4px 8px' }}>✕</button>
             </div>
-
             {feelingLoading ? (
               <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--silver)' }}>Finding your verse...</div>
             ) : feelingVerse ? (
