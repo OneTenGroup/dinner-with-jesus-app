@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import BiblePage from './BiblePage'
 
 const GREETINGS = {
   morning: [
@@ -83,6 +84,7 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
   const [feelingLoading, setFeelingLoading] = useState(false)
   const [showFeelingPopup, setShowFeelingPopup] = useState(false)
   const [showPrayOverlay, setShowPrayOverlay] = useState(false)
+  const [showBible, setShowBible] = useState(false)
 
   const familyMembers = allMembers || []
 
@@ -200,6 +202,9 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
 
   return (
     <div className="screen" style={{ paddingTop: '1rem' }}>
+
+      {/* Bible Reader */}
+      {showBible && <BiblePage onClose={() => setShowBible(false)} />}
 
       {/* Announcement Banner */}
       {announcement && !bannerDismissed && (
@@ -361,6 +366,16 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
         <p style={{ fontFamily: 'Lora, serif', fontSize: '17px', color: 'var(--gold)', lineHeight: 1.7, fontStyle: 'italic', fontWeight: 600 }}>
           {conversationMsg}
         </p>
+      </div>
+
+      {/* Bible Reader Link */}
+      <div style={{ textAlign: 'center', marginBottom: '0.75rem' }}>
+        <button
+          onClick={() => setShowBible(true)}
+          style={{ background: 'none', border: 'none', color: 'var(--gold)', fontSize: '14px', cursor: 'pointer', fontFamily: 'Lora, serif', fontStyle: 'italic', textDecoration: 'underline', textUnderlineOffset: '3px' }}
+        >
+          📖 Read the Bible
+        </button>
       </div>
 
       {/* OneTen credit */}
