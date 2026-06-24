@@ -51,17 +51,35 @@ export default function AdminPage({ onClose }) {
     if (!announcement.trim()) return
     setSaving(true)
     try {
-      // Deactivate old announcements
-      await supabase.from('announcements').update({ active: false }).eq('active', true)
-      // Create new
-      const { data } = await supabase.from('announcements').insert({
-        message: announcement.trim(),
-        active: true
-      }).select().single()
+      // Deactivate old announcements first
+      await supabase
+        .from('announcements')
+        .update({ active: false })
+        .eq('active', true)
+
+      // Create new announcement
+      const { data, error } = await supabase
+        .from('announcements')
+        .insert({
+          message: announcement.trim(),
+          active: true
+        })
+        .select()
+        .single()
+
+      if (error) {
+        console.error('Announcement error:', error)
+        showToast('Error: ' + error.message)
+        setSaving(false)
+        return
+      }
+
       setActiveAnnouncement(data)
       setAnnouncement('')
       showToast('Announcement sent! ✓')
+      await loadAll()
     } catch (err) {
+      console.error('Announcement catch:', err)
       showToast('Could not send announcement.')
     }
     setSaving(false)
