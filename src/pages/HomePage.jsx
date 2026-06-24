@@ -43,6 +43,8 @@ const sectionStyle = {
   borderRadius: '12px',
   padding: '1.25rem',
   marginBottom: '1rem',
+  position: 'relative',
+  overflow: 'hidden',
 }
 
 const sectionTitleStyle = {
@@ -172,7 +174,7 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
     <div className="screen" style={{ paddingTop: '1rem' }}>
 
       {/* Brand */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '1.25rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: '1.25rem' }}>
         <div className="cross" style={{ width: 28, height: 28 }}></div>
         <div style={{ fontFamily: 'Lora, serif', fontSize: '1.05rem', fontWeight: 600, color: 'var(--white)' }}>
           Dinner with <span style={{ color: 'var(--gold)' }}>Jesus</span>
@@ -181,6 +183,7 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
 
       {/* Greeting */}
       <div style={{ ...sectionStyle, background: 'var(--bg2)' }}>
+        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: 'linear-gradient(90deg, var(--gold), transparent)' }} />
         <div style={{ fontFamily: 'Lora, serif', fontSize: '1rem', color: 'var(--white)', lineHeight: 1.5, marginBottom: 4 }}>
           {greeting.msg}
         </div>
@@ -191,6 +194,7 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
 
       {/* Tonight's Table */}
       <div style={sectionStyle}>
+        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: 'linear-gradient(90deg, var(--gold), transparent)' }} />
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
           <span style={sectionTitleStyle}>Tonight's Table</span>
           {familyMembers.length > 0 && (
@@ -224,6 +228,7 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
 
       {/* Time Verse */}
       <div style={sectionStyle}>
+        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: 'linear-gradient(90deg, var(--gold), transparent)' }} />
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{ width: 36, height: 36, borderRadius: 8, background: 'var(--gold-soft)', border: '0.5px solid var(--border-gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem', flexShrink: 0 }}>
@@ -278,6 +283,7 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
 
       {/* Feelings Grid */}
       <div style={sectionStyle}>
+        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: 'linear-gradient(90deg, var(--gold), transparent)' }} />
         <span style={sectionTitleStyle}>Need a moment with God right now?</span>
         <p style={sectionSubStyle}>Pick what you're actually feeling. He already knows anyway.</p>
         <div className="feelings-grid">
@@ -291,9 +297,10 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
       </div>
 
       {/* Conversations — prominent */}
-      <div style={{ ...sectionStyle, textAlign: 'center', background: 'var(--bg3)' }}>
+      <div style={{ ...sectionStyle, textAlign: 'center', background: 'var(--bg3)', position: 'relative', overflow: 'hidden' }}>
+        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: 'linear-gradient(90deg, var(--gold), transparent)' }} />
         <div style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>🍽️</div>
-        <p style={{ fontFamily: 'Lora, serif', fontSize: '15px', color: 'var(--white)', lineHeight: 1.7, fontStyle: 'italic' }}>
+        <p style={{ fontFamily: 'Lora, serif', fontSize: '17px', color: 'var(--gold)', lineHeight: 1.7, fontStyle: 'italic', fontWeight: 600 }}>
           {conversationMsg}
         </p>
       </div>
