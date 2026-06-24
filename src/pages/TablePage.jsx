@@ -205,49 +205,68 @@ export default function TablePage({ activeMembers, onDiscussed, stats }) {
     </div>
   )
 
+  const goldAccent = { position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: 'linear-gradient(90deg, var(--gold), transparent)' }
+  const cardBase = { position: 'relative', overflow: 'hidden', background: 'var(--bg2)', border: '0.5px solid var(--border-gold)', borderRadius: '12px', padding: '1.25rem', marginBottom: '0.875rem' }
+  const sectionTitle = { fontFamily: 'Lora, serif', fontSize: '1rem', fontWeight: 600, color: 'var(--white)', letterSpacing: '0.02em', marginBottom: '0.25rem', display: 'block' }
+
+  const conversationMsg = stats.conversations === 0
+    ? "Your first conversation hasn't happened yet. Tonight could be the night. 🙏"
+    : stats.conversations === 1
+    ? "Your family has shared 1 conversation at this table. Keep going."
+    : `Your family has shared ${stats.conversations} conversations at this table. That's ${stats.conversations} nights that mattered.`
+
   return (
     <div className="screen" style={{ paddingTop: '1rem' }}>
-      <div style={{ fontSize: '11px', letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--gold)', marginBottom: '1rem' }}>
+
+      {/* Meal label */}
+      <div style={{ fontSize: '12px', letterSpacing: '0.15em', textTransform: 'uppercase', color: 'var(--silver2)', marginBottom: '1rem', fontWeight: 500 }}>
         {mealLabel}
       </div>
 
-      <div className="card card-gold">
+      {/* Verse card */}
+      <div style={{ ...cardBase, borderColor: 'var(--border-gold)' }}>
+        <div style={goldAccent} />
         <div className="verse-ref">{verse.verse_ref} · {verse.category}</div>
         <div className="verse-text">"{verse.verse_text}"</div>
       </div>
 
+      {/* Context */}
       {verse.context_text && (
-        <div className="card" style={{ background: 'var(--bg3)' }}>
-          <span className="section-label">A little context</span>
+        <div style={{ ...cardBase, background: 'var(--bg3)' }}>
+          <div style={goldAccent} />
+          <span style={sectionTitle}>A little context</span>
           <p style={{ fontSize: '14px', color: 'var(--cream)', lineHeight: 1.75, fontWeight: 300 }}>
             {verse.context_text}
           </p>
         </div>
       )}
 
-      <div className="card card-gold">
-        <span className="section-label">For the table tonight</span>
-        <p style={{ fontFamily: 'Lora, serif', fontSize: '1rem', color: 'var(--white)', lineHeight: 1.65, fontStyle: 'italic' }}>
+      {/* Questions */}
+      <div style={cardBase}>
+        <div style={goldAccent} />
+        <span style={sectionTitle}>For the table tonight</span>
+        <p style={{ fontFamily: 'Lora, serif', fontSize: '1rem', color: 'var(--white)', lineHeight: 1.65, fontStyle: 'italic', marginTop: '0.5rem' }}>
           {getQuestion(1)}
         </p>
         {faithLevel >= 2 && verse.question_level_2 && (
           <div style={{ marginTop: '1rem', borderTop: '0.5px solid var(--border)', paddingTop: '0.875rem' }}>
-            <p style={{ fontSize: '10px', letterSpacing: '0.15em', textTransform: 'uppercase', color: 'var(--silver)', marginBottom: '0.5rem' }}>Go deeper</p>
+            <p style={{ fontSize: '11px', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--silver2)', marginBottom: '0.5rem', fontWeight: 500 }}>Go deeper</p>
             <p style={{ fontFamily: 'Lora, serif', fontSize: '0.9rem', color: 'var(--silver)', lineHeight: 1.6, fontStyle: 'italic' }}>{getQuestion(2)}</p>
           </div>
         )}
         {faithLevel >= 3 && verse.question_level_3 && (
           <div style={{ marginTop: '0.875rem', borderTop: '0.5px solid var(--border)', paddingTop: '0.875rem' }}>
-            <p style={{ fontSize: '10px', letterSpacing: '0.15em', textTransform: 'uppercase', color: 'var(--silver)', marginBottom: '0.5rem' }}>Push further</p>
+            <p style={{ fontSize: '11px', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--silver2)', marginBottom: '0.5rem', fontWeight: 500 }}>Push further</p>
             <p style={{ fontFamily: 'Lora, serif', fontSize: '0.9rem', color: 'var(--silver)', lineHeight: 1.6, fontStyle: 'italic' }}>{getQuestion(3)}</p>
           </div>
         )}
       </div>
 
-      {/* Prayer rotation */}
-      <div className="card">
+      {/* Prayer */}
+      <div style={cardBase}>
+        <div style={goldAccent} />
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-          <span className="section-label" style={{ marginBottom: 0 }}>Prayer</span>
+          <span style={{ ...sectionTitle, marginBottom: 0 }}>Prayer</span>
           {nextMember && !allPrayed && (
             <span style={{ fontSize: '11px', color: 'var(--gold)', background: 'var(--gold-soft)', padding: '2px 10px', borderRadius: 999 }}>
               Next: {nextMember}
@@ -277,11 +296,7 @@ export default function TablePage({ activeMembers, onDiscussed, stats }) {
         </div>
 
         <div className="btn-row">
-          <button
-            className="btn btn-green"
-            onClick={nextPrayer}
-            style={{ opacity: allPrayed ? 0.6 : 1 }}
-          >
+          <button className="btn btn-green" onClick={nextPrayer} style={{ opacity: allPrayed ? 0.6 : 1 }}>
             {allPrayed ? '🙏 All prayed' : '✓ We prayed together'}
           </button>
           <button className="btn" onClick={() => setShowPrayer(!showPrayer)}>📖 Full prayer</button>
@@ -293,16 +308,13 @@ export default function TablePage({ activeMembers, onDiscussed, stats }) {
         <button className="btn btn-gold" onClick={markDiscussed}>✓ We discussed this</button>
       </div>
 
-      <button
-        className="btn"
-        style={{ marginBottom: '0.875rem', background: 'var(--gold-soft)', borderColor: 'var(--border-gold)', color: 'var(--gold)' }}
-        onClick={() => setShowInvite(!showInvite)}
-      >
+      <button className="btn" style={{ marginBottom: '0.875rem', background: 'var(--gold-soft)', borderColor: 'var(--border-gold)', color: 'var(--gold)' }} onClick={() => setShowInvite(!showInvite)}>
         🪑 Invite someone to the table tonight
       </button>
 
       {showInvite && (
-        <div className="card" style={{ marginBottom: '0.875rem' }}>
+        <div style={{ ...cardBase, marginBottom: '0.875rem' }}>
+          <div style={goldAccent} />
           <p style={{ fontFamily: 'Lora, serif', fontSize: '0.95rem', color: 'var(--white)', marginBottom: '0.25rem' }}>Can I join your table tonight?</p>
           <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.875rem', fontWeight: 300 }}>Send a quick text. One tap to join.</p>
           {['👨‍👩‍👧‍👦 Extended Family', '👥 Friends', '🏛 Community'].map(g => (
@@ -316,24 +328,31 @@ export default function TablePage({ activeMembers, onDiscussed, stats }) {
       )}
 
       {/* Journal note */}
-      <div style={{ marginBottom: '5px' }}>
-        <span className="section-label">What happened at the table tonight</span>
+      <div style={{ ...cardBase }}>
+        <div style={goldAccent} />
+        <span style={sectionTitle}>What happened at the table tonight</span>
+        <p style={{ fontSize: '13px', color: 'var(--silver)', fontStyle: 'italic', marginBottom: '0.75rem', marginTop: '0.25rem' }}>
+          Write it down. You'll want it later.
+        </p>
+        <textarea
+          value={noteText}
+          onChange={e => setNoteText(e.target.value)}
+          placeholder="Something someone said that you never want to forget..."
+          style={{ minHeight: 72, resize: 'none', marginBottom: 8 }}
+        />
+        <button className="btn btn-gold" onClick={saveNote}>
+          Save this moment
+        </button>
       </div>
-      <textarea
-        value={noteText}
-        onChange={e => setNoteText(e.target.value)}
-        placeholder="Something someone said that you never want to forget..."
-        style={{ minHeight: 72, resize: 'none', marginBottom: 8 }}
-      />
-      <button className="btn btn-gold" onClick={saveNote} style={{ marginBottom: '1.5rem' }}>
-        Save this moment
-      </button>
 
-      <p style={{ textAlign: 'center', fontSize: '12px', color: 'var(--silver)', fontStyle: 'italic', paddingBottom: '1rem' }}>
-        {stats.conversations === 0
-          ? 'Your first conversation starts tonight.'
-          : `Your family has shared ${stats.conversations} conversation${stats.conversations !== 1 ? 's' : ''} at this table.`}
-      </p>
+      {/* Conversation counter */}
+      <div style={{ ...cardBase, textAlign: 'center', background: 'var(--bg3)', marginBottom: '1.5rem' }}>
+        <div style={goldAccent} />
+        <div style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>🍽️</div>
+        <p style={{ fontFamily: 'Lora, serif', fontSize: '17px', color: 'var(--gold)', lineHeight: 1.7, fontStyle: 'italic', fontWeight: 600 }}>
+          {conversationMsg}
+        </p>
+      </div>
 
       {/* Full prayer overlay */}
       {showPrayer && (
