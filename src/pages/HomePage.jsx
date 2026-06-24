@@ -236,7 +236,7 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
             </div>
             <div>
               <span style={sectionTitleStyle}>Your verse for this moment</span>
-              <p style={{ ...sectionSubStyle, marginBottom: 0 }}>God speaks through Scripture — even in the numbers</p>
+              <p style={{ ...sectionSubStyle, marginBottom: 0, fontSize: '12px' }}>God speaks through Scripture — even in the numbers</p>
             </div>
           </div>
           <div style={{ fontFamily: 'Lora, serif', fontSize: '1.4rem', fontWeight: 600, color: 'var(--gold)', letterSpacing: '0.05em', flexShrink: 0, marginLeft: 8 }}>
