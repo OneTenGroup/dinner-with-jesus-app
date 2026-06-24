@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from './context/AuthContext'
 import { useFamily } from './hooks/useFamily'
+import { supabase } from './lib/supabase'
 import AuthPage from './pages/AuthPage'
 import OnboardingPage from './pages/OnboardingPage'
 import HomePage from './pages/HomePage'
@@ -10,6 +11,72 @@ import JournalPage from './pages/JournalPage'
 import SettingsPage from './pages/SettingsPage'
 import KendylScene from './components/KendylScene'
 
+function ResetPasswordScreen({ onDone }) {
+  const [password, setPassword] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState(false)
+
+  async function handleReset(e) {
+    e.preventDefault()
+    if (password !== confirm) { setError('Passwords do not match.'); return }
+    if (password.length < 6) { setError('Password must be at least 6 characters.'); return }
+    setLoading(true)
+    const { error } = await supabase.auth.updateUser({ password })
+    if (error) {
+      setError(error.message)
+    } else {
+      setSuccess(true)
+      setTimeout(() => onDone(), 2000)
+    }
+    setLoading(false)
+  }
+
+  return (
+    <div className="auth-wrap">
+      <div className="auth-logo">
+        <div className="cross" style={{ width: 24, height: 24 }}></div>
+        <h1 className="auth-title">Dinner with <span>Jesus</span></h1>
+      </div>
+
+      {success ? (
+        <>
+          <div style={{ fontSize: '2.5rem', marginBottom: '1rem' }}>✅</div>
+          <p style={{ fontFamily: 'Lora, serif', color: 'var(--white)', fontSize: '1.1rem' }}>Password updated!</p>
+          <p style={{ color: 'var(--silver)', fontSize: '13px', marginTop: '0.5rem' }}>Taking you to the app...</p>
+        </>
+      ) : (
+        <>
+          <p className="auth-sub">Set your new password.</p>
+          <form className="auth-form" onSubmit={handleReset}>
+            <input
+              type="password"
+              placeholder="New password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              required
+              minLength={6}
+            />
+            <input
+              type="password"
+              placeholder="Confirm new password"
+              value={confirm}
+              onChange={e => setConfirm(e.target.value)}
+              required
+              minLength={6}
+            />
+            {error && <div className="auth-error">{error}</div>}
+            <button type="submit" className="btn btn-gold" disabled={loading} style={{ marginTop: '4px' }}>
+              {loading ? '...' : 'Update password'}
+            </button>
+          </form>
+        </>
+      )}
+    </div>
+  )
+}
+
 export default function App() {
   const { user, profile, loading } = useAuth()
   const { members, loading: familyLoading } = useFamily()
@@ -18,6 +85,15 @@ export default function App() {
   const [stats, setStats] = useState({ conversations: 0 })
   const [onboardingDone, setOnboardingDone] = useState(false)
   const [showKendyl, setShowKendyl] = useState(false)
+  const [isPasswordReset, setIsPasswordReset] = useState(false)
+
+  useEffect(() => {
+    // Detect password reset token in URL
+    const hash = window.location.hash
+    if (hash && hash.includes('type=recovery')) {
+      setIsPasswordReset(true)
+    }
+  }, [])
 
   useEffect(() => {
     if (members.length > 0) {
@@ -26,8 +102,18 @@ export default function App() {
   }, [members])
 
   useEffect(() => {
-    if (user) setShowKendyl(true)
+    if (user && !isPasswordReset) setShowKendyl(true)
   }, [user])
+
+  // Show password reset screen if recovery token detected
+  if (isPasswordReset) {
+    return (
+      <ResetPasswordScreen onDone={() => {
+        setIsPasswordReset(false)
+        window.history.replaceState(null, '', '/')
+      }} />
+    )
+  }
 
   if (loading || familyLoading) {
     return (
