@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
+import { supabase } from '../lib/supabase'
 
 const GREETINGS = {
   morning: [
@@ -36,12 +37,23 @@ const FEELINGS = [
   { emoji: '🌟', label: 'Direction', key: 'direction' },
 ]
 
-export default function HomePage({ onGoToTable, onGoToPray, activeMembers, setActiveMembers, allMembers, stats }) {
+export default function HomePage({ onGoToTable, activeMembers, setActiveMembers, allMembers, stats }) {
   const { profile } = useAuth()
   const [greeting, setGreeting] = useState({ msg: 'Welcome.', sub: '' })
   const [currentTime, setCurrentTime] = useState('')
+  const [timeVerses, setTimeVerses] = useState([])
+  const [timeLoading, setTimeLoading] = useState(false)
+  const [timeLoaded, setTimeLoaded] = useState(false)
+  const [selectedTimeVerse, setSelectedTimeVerse] = useState(null)
 
-  // Use database members, no hardcoded fallback
+  // Feeling popup
+  const [selectedFeeling, setSelectedFeeling] = useState(null)
+  const [feelingVerse, setFeelingVerse] = useState(null)
+  const [feelingVerseIdx, setFeelingVerseIdx] = useState(0)
+  const [feelingLoading, setFeelingLoading] = useState(false)
+  const [showFeelingPopup, setShowFeelingPopup] = useState(false)
+  const [showPrayOverlay, setShowPrayOverlay] = useState(false)
+
   const familyMembers = allMembers || []
 
   useEffect(() => {
@@ -65,6 +77,69 @@ export default function HomePage({ onGoToTable, onGoToPray, activeMembers, setAc
       prev.includes(name) ? prev.filter(m => m !== name) : [...prev, name]
     )
   }
+
+  async function loadTimeVerses() {
+    if (timeLoaded) return
+    setTimeLoading(true)
+    const now = new Date()
+    const h = now.getHours() % 12 || 12
+    const m = now.getMinutes()
+    try {
+      const { data, error } = await supabase
+        .from('bible_verses')
+        .select('id, book, book_abbr, chapter, verse, text_kjv')
+        .eq('chapter', h)
+        .eq('verse', m)
+        .order('book_order')
+      if (error) throw error
+      setTimeVerses(data || [])
+      setTimeLoaded(true)
+    } catch (err) {
+      console.error('Time verse error:', err)
+    }
+    setTimeLoading(false)
+  }
+
+  async function selectFeeling(key) {
+    setSelectedFeeling(key)
+    setFeelingVerseIdx(0)
+    setShowFeelingPopup(true)
+    setFeelingLoading(true)
+    try {
+      const { data } = await supabase
+        .from('feeling_verses')
+        .select('*')
+        .eq('feeling_key', key)
+        .order('display_order')
+      if (data && data.length > 0) {
+        setFeelingVerse(data[0])
+      } else {
+        setFeelingVerse(null)
+      }
+    } catch (err) {
+      setFeelingVerse(null)
+    }
+    setFeelingLoading(false)
+  }
+
+  async function nextFeelingVerse() {
+    const newIdx = feelingVerseIdx + 1
+    setFeelingVerseIdx(newIdx)
+    setFeelingLoading(true)
+    try {
+      const { data } = await supabase
+        .from('feeling_verses')
+        .select('*')
+        .eq('feeling_key', selectedFeeling)
+        .order('display_order')
+      if (data && data.length > 0) {
+        setFeelingVerse(data[newIdx % data.length])
+      }
+    } catch (err) {}
+    setFeelingLoading(false)
+  }
+
+  const feeling = FEELINGS.find(f => f.key === selectedFeeling)
 
   return (
     <div className="screen" style={{ paddingTop: '1rem' }}>
@@ -95,10 +170,9 @@ export default function HomePage({ onGoToTable, onGoToPray, activeMembers, setAc
             <span style={{ fontSize: '11px', color: 'var(--silver)', fontWeight: 300 }}>Tap to remove</span>
           )}
         </div>
-
         {familyMembers.length === 0 ? (
           <p style={{ fontSize: '13px', color: 'var(--silver)', fontStyle: 'italic', marginBottom: '1rem', lineHeight: 1.6 }}>
-            Your table is empty. Circles feature coming soon — invite your family to join!
+            Your table is empty. Go to Settings to create or join a table.
           </p>
         ) : (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: '1rem' }}>
@@ -114,24 +188,81 @@ export default function HomePage({ onGoToTable, onGoToPray, activeMembers, setAc
             ))}
           </div>
         )}
-
         <button className="btn btn-gold" onClick={onGoToTable}>
           Let's Get Started 🙏
         </button>
       </div>
 
-      {/* Pray Anytime */}
+      {/* Time Verse */}
+      <div style={{ marginBottom: '1rem' }}>
+        <div style={{ background: 'var(--bg2)', border: '0.5px solid var(--border-gold)', borderRadius: 14, overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem 1rem 0.75rem', borderBottom: timeLoaded ? '0.5px solid var(--border)' : 'none' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: 'var(--gold-soft)', border: '0.5px solid var(--border-gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', flexShrink: 0 }}>
+                🕐
+              </div>
+              <div>
+                <div style={{ fontFamily: 'Lora, serif', fontSize: '0.95rem', color: 'var(--white)', fontWeight: 600 }}>
+                  Your verse for this moment
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--silver)', fontWeight: 300, marginTop: 1 }}>
+                  God speaks through Scripture — even in the numbers
+                </div>
+              </div>
+            </div>
+            <div style={{ fontFamily: 'Lora, serif', fontSize: '1.4rem', fontWeight: 600, color: 'var(--gold)', letterSpacing: '0.05em', flexShrink: 0, marginLeft: 8 }}>
+              {currentTime}
+            </div>
+          </div>
+          <div style={{ padding: '0.875rem 1rem 1rem' }}>
+            {!timeLoaded ? (
+              <button className="btn btn-gold" onClick={loadTimeVerses} disabled={timeLoading} style={{ width: '100%', fontSize: '14px', padding: '12px' }}>
+                {timeLoading ? 'Finding your verses...' : `Find verses for ${currentTime}`}
+              </button>
+            ) : timeVerses.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '0.75rem 0' }}>
+                <p style={{ fontSize: '13px', color: 'var(--silver)', lineHeight: 1.7, marginBottom: '0.75rem' }}>
+                  No verses found for {currentTime}.<br />
+                  <span style={{ color: 'var(--gold)', fontStyle: 'italic' }}>Try again at a different moment.</span>
+                </p>
+                <button className="btn" onClick={() => { setTimeLoaded(false); setTimeVerses([]) }}>Try current time</button>
+              </div>
+            ) : (
+              <div>
+                <p style={{ fontSize: '11px', letterSpacing: '0.15em', textTransform: 'uppercase', color: 'var(--silver)', marginBottom: '0.75rem' }}>
+                  {timeVerses.length} verse{timeVerses.length !== 1 ? 's' : ''} across Scripture for {currentTime}
+                </p>
+                {timeVerses.map(v => (
+                  <div key={v.id} onClick={() => setSelectedTimeVerse(selectedTimeVerse?.id === v.id ? null : v)}
+                    style={{ padding: '0.875rem', background: selectedTimeVerse?.id === v.id ? 'var(--gold-soft)' : 'var(--bg3)', borderRadius: 10, border: `0.5px solid ${selectedTimeVerse?.id === v.id ? 'var(--border-gold)' : 'var(--border)'}`, marginBottom: 8, cursor: 'pointer', transition: 'all 0.15s' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 500, color: 'var(--gold)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '0.35rem' }}>
+                      {v.book} {v.chapter}:{v.verse}
+                    </div>
+                    <div style={{ fontFamily: 'Lora, serif', fontSize: '0.88rem', fontStyle: 'italic', color: 'var(--white)', lineHeight: 1.7 }}>
+                      "{v.text_kjv}"
+                    </div>
+                  </div>
+                ))}
+                <button className="btn" style={{ marginTop: '0.25rem' }} onClick={() => { setTimeLoaded(false); setTimeVerses([]); setSelectedTimeVerse(null) }}>
+                  ↺ Refresh for current time
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Feelings Grid */}
       <div className="card" style={{ marginBottom: '1rem' }}>
         <span className="section-label">Need a moment with God right now?</span>
         <div className="feelings-grid">
           {FEELINGS.map(f => (
-            <button key={f.key} className="feeling-btn" onClick={() => onGoToPray(f.key)}>
+            <button key={f.key} className="feeling-btn" onClick={() => selectFeeling(f.key)}>
               <span className="feeling-emoji">{f.emoji}</span>
               <span className="feeling-label">{f.label}</span>
             </button>
           ))}
         </div>
-
       </div>
 
       {/* Memory strip */}
@@ -142,6 +273,68 @@ export default function HomePage({ onGoToTable, onGoToPray, activeMembers, setAc
           ? 'Your family has shared 1 conversation at this table.'
           : `Your family has shared ${stats.conversations} conversations at this table.`}
       </p>
+
+      {/* OneTen credit */}
+      <p style={{ textAlign: 'center', fontSize: '11px', color: 'var(--silver)', opacity: 0.5, paddingBottom: '1.5rem' }}>
+        Built by <a href="https://onetengroup.ai" target="_blank" rel="noreferrer" style={{ color: 'var(--gold)', textDecoration: 'none' }}>OneTen Group</a> · 1:10
+      </p>
+
+      {/* Feeling Verse Popup */}
+      {showFeelingPopup && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(13,24,41,0.96)', zIndex: 150, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '1.5rem', backdropFilter: 'blur(8px)' }}
+          onClick={e => { if (e.target === e.currentTarget) setShowFeelingPopup(false) }}>
+          <div style={{ background: 'var(--bg2)', borderRadius: 16, border: '0.5px solid var(--border-gold)', padding: '1.5rem', width: '100%', maxWidth: '420px', maxHeight: '85vh', overflowY: 'auto' }}>
+
+            {/* Close */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.5rem' }}>
+              <button onClick={() => setShowFeelingPopup(false)} style={{ background: 'none', border: 'none', color: 'var(--silver)', fontSize: '20px', cursor: 'pointer', padding: '4px 8px' }}>✕</button>
+            </div>
+
+            {feelingLoading ? (
+              <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--silver)' }}>Finding your verse...</div>
+            ) : feelingVerse ? (
+              <>
+                <div style={{ fontSize: '11px', fontWeight: 500, color: 'var(--gold)', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
+                  {feeling?.emoji} {feelingVerse.verse_ref} — for when you feel {feeling?.label?.toLowerCase()}
+                </div>
+                <div style={{ fontFamily: 'Lora, serif', fontSize: '1.05rem', fontStyle: 'italic', color: 'var(--white)', lineHeight: 1.7, marginBottom: '0.875rem' }}>
+                  "{feelingVerse.verse_text}"
+                </div>
+                <p style={{ fontSize: '13px', color: 'var(--silver)', lineHeight: 1.7, marginBottom: '0.875rem', fontStyle: 'italic', fontWeight: 300 }}>
+                  {feelingVerse.context_text}
+                </p>
+                <div style={{ background: 'var(--bg3)', borderRadius: 10, padding: '1rem', marginBottom: '1rem', border: '0.5px solid var(--border)' }}>
+                  <p style={{ fontFamily: 'Lora, serif', fontSize: '13px', fontStyle: 'italic', color: 'var(--cream)', lineHeight: 1.8, margin: 0 }}>
+                    {feelingVerse.prayer_text}
+                  </p>
+                </div>
+                <div className="btn-row">
+                  <button className="btn" onClick={nextFeelingVerse}>↺ Another verse</button>
+                  <button className="btn btn-gold" onClick={() => setShowPrayOverlay(true)}>🙏 Pray this</button>
+                </div>
+              </>
+            ) : (
+              <div style={{ textAlign: 'center', padding: '1rem' }}>
+                <p style={{ color: 'var(--silver)', fontSize: '13px' }}>No verses found for this feeling.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Prayer overlay */}
+      {showPrayOverlay && feelingVerse && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(13,24,41,0.98)', zIndex: 200, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '2rem', textAlign: 'center', backdropFilter: 'blur(8px)' }}>
+          <div style={{ fontSize: '1.8rem', marginBottom: '1rem' }}>✝️</div>
+          <p style={{ fontFamily: 'Lora, serif', fontSize: '0.95rem', fontStyle: 'italic', color: 'var(--white)', lineHeight: 1.85, maxWidth: 380, marginBottom: '0.875rem' }}>
+            {feelingVerse.prayer_text}
+          </p>
+          <p style={{ fontSize: '13px', color: 'var(--silver)', marginBottom: '2rem' }}>— Amen 🙏</p>
+          <button className="btn btn-gold" style={{ width: 'auto', padding: '11px 2rem' }} onClick={() => { setShowPrayOverlay(false); setShowFeelingPopup(false) }}>
+            Close
+          </button>
+        </div>
+      )}
     </div>
   )
 }
