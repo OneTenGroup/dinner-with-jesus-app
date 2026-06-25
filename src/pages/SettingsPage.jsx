@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useFamily } from '../hooks/useFamily'
 import { supabase } from '../lib/supabase'
@@ -11,24 +11,99 @@ const FAITH_LABELS = {
 
 const TRANSLATIONS = ['KJV', 'NIV', 'NLT', 'ESV', 'NKJV']
 
+async function lockVerseForGroup(groupId) {
+  if (!groupId) return { error: 'No group found' }
+  const today = new Date().toISOString().split('T')[0]
+
+  const { data: existing } = await supabase
+    .from('group_verse')
+    .select('dinner_verse_id')
+    .eq('group_id', groupId)
+    .eq('verse_date', today)
+    .single()
+
+  if (existing?.dinner_verse_id) return { alreadyLocked: true }
+
+  const { data: historyData } = await supabase
+    .from('verse_history')
+    .select('dinner_verse_id')
+
+  const discussedIds = historyData?.map(d => d.dinner_verse_id) || []
+
+  const { data: allVerses } = await supabase
+    .from('dinner_verses')
+    .select('id')
+    .eq('active', true)
+    .limit(200)
+
+  if (!allVerses || allVerses.length === 0) return { error: 'No verses available' }
+
+  const available = discussedIds.length > 0
+    ? allVerses.filter(v => !discussedIds.includes(v.id))
+    : allVerses
+  const pool = available.length > 0 ? available : allVerses
+  const picked = pool[Math.floor(Math.random() * pool.length)]
+
+  const { error } = await supabase
+    .from('group_verse')
+    .upsert({ group_id: groupId, dinner_verse_id: picked.id, verse_date: today }, { onConflict: 'group_id,verse_date' })
+
+  if (error) return { error: 'Could not lock verse' }
+  return { success: true }
+}
+
 export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
   const { user, profile, signOut, updateProfile } = useAuth()
   const { group, members, createGroup, joinGroup, leaveGroup } = useFamily()
 
   const [toast, setToast] = useState('')
-  const [mode, setMode] = useState('none') // none | create | join
+  const [mode, setMode] = useState('none')
   const [newGroupName, setNewGroupName] = useState('')
   const [joinCode, setJoinCode] = useState('')
   const [creating, setCreating] = useState(false)
   const [joining, setJoining] = useState(false)
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false)
   const [leaving, setLeaving] = useState(false)
+  const [verseLocked, setVerseLocked] = useState(false)
+  const [lockingVerse, setLockingVerse] = useState(false)
   const [accountMode, setAccountMode] = useState('none')
   const [newName, setNewName] = useState('')
   const [newEmail, setNewEmail] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [accountSaving, setAccountSaving] = useState(false)
+
+  useEffect(() => {
+    checkVerseLocked()
+  }, [group])
+
+  async function checkVerseLocked() {
+    if (!group?.id) return
+    const today = new Date().toISOString().split('T')[0]
+    const { data } = await supabase
+      .from('group_verse')
+      .select('id')
+      .eq('group_id', group.id)
+      .eq('verse_date', today)
+      .single()
+    setVerseLocked(!!data)
+  }
+
+  async function handleLockVerse() {
+    if (!group?.id) { showToast('You need a dinner circle first.'); return }
+    setLockingVerse(true)
+    const result = await lockVerseForGroup(group.id)
+    if (result.alreadyLocked) {
+      showToast("Tonight's verse is already set. 🙏")
+      setVerseLocked(true)
+    } else if (result.success) {
+      showToast("Tonight's verse is set! Now share your invite code. 🙏")
+      setVerseLocked(true)
+    } else {
+      showToast(result.error || 'Could not set verse. Try again.')
+    }
+    setLockingVerse(false)
+  }
 
   function showToast(msg) {
     setToast(msg)
@@ -44,7 +119,7 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
     } else {
       setNewGroupName('')
       setMode('none')
-      showToast(`${result.group.name} is ready! Share your code. 🙏`)
+      showToast(`${result.group.name} is ready! 🙏`)
     }
     setCreating(false)
   }
@@ -110,9 +185,7 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
       showToast('Name updated ✓')
       setAccountMode('none')
       setNewName('')
-    } catch (err) {
-      showToast('Could not update name. Try again.')
-    }
+    } catch (err) { showToast('Could not update name. Try again.') }
     setAccountSaving(false)
   }
 
@@ -126,9 +199,7 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
       showToast('Check your new email to confirm the change ✓')
       setAccountMode('none')
       setNewEmail('')
-    } catch (err) {
-      showToast(err.message || 'Could not update email.')
-    }
+    } catch (err) { showToast(err.message || 'Could not update email.') }
     setAccountSaving(false)
   }
 
@@ -144,20 +215,14 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
       setAccountMode('none')
       setNewPassword('')
       setConfirmPassword('')
-    } catch (err) {
-      showToast(err.message || 'Could not update password.')
-    }
+    } catch (err) { showToast(err.message || 'Could not update password.') }
     setAccountSaving(false)
   }
 
   return (
     <div className="screen" style={{ paddingTop: '1rem' }}>
-      <h2 style={{ fontFamily: 'Lora, serif', fontSize: '1.3rem', fontWeight: 600, color: 'var(--white)', marginBottom: '0.25rem' }}>
-        Settings
-      </h2>
-      <p style={{ fontSize: '13px', color: 'var(--silver)', fontWeight: 300, marginBottom: '1.25rem' }}>
-        Your table, your way.
-      </p>
+      <h2 style={{ fontFamily: 'Lora, serif', fontSize: '1.3rem', fontWeight: 600, color: 'var(--white)', marginBottom: '0.25rem' }}>Settings</h2>
+      <p style={{ fontSize: '13px', color: 'var(--silver)', fontWeight: 300, marginBottom: '1.25rem' }}>Your table, your way.</p>
 
       {/* Account */}
       <span className="section-label">Your Account</span>
@@ -170,14 +235,10 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
             <div style={{ fontSize: '15px', color: 'var(--white)' }}>{profile?.name}</div>
             <div style={{ fontSize: '12px', color: 'var(--silver)', marginTop: 2 }}>{profile?.email || user?.email || ''}</div>
           </div>
-          <button
-            onClick={() => setAccountMode(accountMode === 'none' ? 'menu' : 'none')}
-            style={{ background: 'none', border: '0.5px solid var(--border)', borderRadius: 8, padding: '6px 12px', color: 'var(--silver)', fontSize: '12px', cursor: 'pointer' }}
-          >
+          <button onClick={() => setAccountMode(accountMode === 'none' ? 'menu' : 'none')} style={{ background: 'none', border: '0.5px solid var(--border)', borderRadius: 8, padding: '6px 12px', color: 'var(--silver)', fontSize: '12px', cursor: 'pointer' }}>
             {accountMode === 'none' ? 'Edit' : 'Cancel'}
           </button>
         </div>
-
         {accountMode === 'menu' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: '0.75rem' }}>
             <button className="btn" style={{ width: '100%', textAlign: 'left', fontSize: '13px' }} onClick={() => { setNewName(profile?.name || ''); setAccountMode('name') }}>✏️ Change display name</button>
@@ -185,7 +246,6 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
             <button className="btn" style={{ width: '100%', textAlign: 'left', fontSize: '13px' }} onClick={() => setAccountMode('password')}>🔒 Change password</button>
           </div>
         )}
-
         {accountMode === 'name' && (
           <div style={{ marginTop: '0.75rem' }}>
             <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.5rem' }}>Display name</p>
@@ -196,7 +256,6 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
             </div>
           </div>
         )}
-
         {accountMode === 'email' && (
           <div style={{ marginTop: '0.75rem' }}>
             <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.5rem' }}>New email address</p>
@@ -208,7 +267,6 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
             </div>
           </div>
         )}
-
         {accountMode === 'password' && (
           <div style={{ marginTop: '0.75rem' }}>
             <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.5rem' }}>New password</p>
@@ -224,7 +282,6 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
 
       {/* Dinner Circle */}
       <span className="section-label">Your Dinner Circle</span>
-
       {group ? (
         <div className="card" style={{ marginBottom: '1.5rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
@@ -246,10 +303,23 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
             )}
           </div>
 
+          {/* Lock verse + instructions */}
+          <div style={{ background: 'var(--bg3)', borderRadius: 10, padding: '0.875rem', marginBottom: '0.875rem', border: '0.5px solid var(--border)' }}>
+            <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.75rem', lineHeight: 1.6 }}>
+              <span style={{ color: 'var(--gold)', fontWeight: 500 }}>Before you invite:</span> Set tonight's verse first so everyone sees the same one. Then share your code.
+            </p>
+            <button
+              className="btn"
+              style={{ width: '100%', background: verseLocked ? 'var(--bg4)' : 'var(--gold-soft)', borderColor: 'var(--border-gold)', color: verseLocked ? 'var(--silver)' : 'var(--gold)', fontSize: '13px' }}
+              onClick={handleLockVerse}
+              disabled={lockingVerse || verseLocked}
+            >
+              {lockingVerse ? 'Setting the table...' : verseLocked ? "✓ Tonight's verse is set" : "🔒 Set tonight's verse"}
+            </button>
+          </div>
+
           {/* Invite code */}
-          <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.75rem', fontWeight: 300 }}>
-            Share this code so others can join your table.
-          </p>
+          <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.75rem', fontWeight: 300 }}>Share this code so others can join your table.</p>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--bg3)', borderRadius: 10, padding: '0.875rem 1rem', border: '0.5px solid var(--border-gold)', marginBottom: '0.875rem' }}>
             <div style={{ fontFamily: 'Lora, serif', fontSize: '1.8rem', fontWeight: 600, color: 'var(--gold)', letterSpacing: '0.2em', flex: 1, textAlign: 'center' }}>
               {group.invite_code}
@@ -281,36 +351,28 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
         <div className="card" style={{ marginBottom: '1.5rem' }}>
           {mode === 'none' && (
             <>
-              <p style={{ fontSize: '13px', color: 'var(--silver)', marginBottom: '1rem', lineHeight: 1.6 }}>
-                Start your own dinner circle or join one you've been invited to.
-              </p>
+              <p style={{ fontSize: '13px', color: 'var(--silver)', marginBottom: '1rem', lineHeight: 1.6 }}>Start your own dinner circle or join one you've been invited to.</p>
               <div className="btn-row">
                 <button className="btn btn-gold" onClick={() => setMode('create')}>🍽️ Start a circle</button>
                 <button className="btn" onClick={() => setMode('join')}>🔑 Join a circle</button>
               </div>
             </>
           )}
-
           {mode === 'create' && (
             <>
               <p style={{ fontSize: '13px', color: 'var(--white)', marginBottom: '0.25rem', fontWeight: 500 }}>Name your dinner circle</p>
               <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.875rem', fontWeight: 300 }}>Usually your family name — e.g. "The Korbars"</p>
               <input type="text" placeholder="The ___ Family" value={newGroupName} onChange={e => setNewGroupName(e.target.value)} maxLength={40} style={{ marginBottom: 8 }} />
-              <button className="btn btn-gold" onClick={handleCreateGroup} disabled={creating} style={{ marginBottom: 8 }}>
-                {creating ? 'Setting the table...' : 'Create my circle 🙏'}
-              </button>
+              <button className="btn btn-gold" onClick={handleCreateGroup} disabled={creating} style={{ marginBottom: 8 }}>{creating ? 'Setting the table...' : 'Create my circle 🙏'}</button>
               <button onClick={() => setMode('none')} style={{ fontSize: '13px', color: 'var(--silver)', background: 'none', border: 'none', cursor: 'pointer', width: '100%', padding: '6px 0' }}>Cancel</button>
             </>
           )}
-
           {mode === 'join' && (
             <>
               <p style={{ fontSize: '13px', color: 'var(--white)', marginBottom: '0.25rem', fontWeight: 500 }}>Join a dinner circle</p>
               <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.875rem', fontWeight: 300 }}>Enter the 6-character code from the person who invited you.</p>
               <input type="text" placeholder="Enter invite code" value={joinCode} onChange={e => setJoinCode(e.target.value.toUpperCase())} maxLength={6} style={{ marginBottom: 8, textAlign: 'center', fontSize: '1.2rem', letterSpacing: '0.2em', textTransform: 'uppercase' }} />
-              <button className="btn btn-gold" onClick={handleJoinGroup} disabled={joining} style={{ marginBottom: 8 }}>
-                {joining ? 'Joining...' : 'Join this circle 🙏'}
-              </button>
+              <button className="btn btn-gold" onClick={handleJoinGroup} disabled={joining} style={{ marginBottom: 8 }}>{joining ? 'Joining...' : 'Join this circle 🙏'}</button>
               <button onClick={() => setMode('none')} style={{ fontSize: '13px', color: 'var(--silver)', background: 'none', border: 'none', cursor: 'pointer', width: '100%', padding: '6px 0' }}>Cancel</button>
             </>
           )}
@@ -333,9 +395,7 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
             </div>
           </div>
         ))}
-        <p style={{ fontSize: '11px', color: 'var(--silver)', opacity: 0.6, marginTop: '0.5rem', fontStyle: 'italic' }}>
-          All 3 question levels shown at the table — your level sets which appears first.
-        </p>
+        <p style={{ fontSize: '11px', color: 'var(--silver)', opacity: 0.6, marginTop: '0.5rem', fontStyle: 'italic' }}>All 3 question levels shown at the table — your level sets which appears first.</p>
       </div>
 
       {/* Translation */}
@@ -348,9 +408,7 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
           </button>
         ))}
       </div>
-      <p style={{ fontSize: '11px', color: 'var(--silver)', opacity: 0.6, marginBottom: '1.5rem', fontStyle: 'italic' }}>
-        WEB translation loaded. Other translations coming soon.
-      </p>
+      <p style={{ fontSize: '11px', color: 'var(--silver)', opacity: 0.6, marginBottom: '1.5rem', fontStyle: 'italic' }}>WEB translation loaded. Other translations coming soon.</p>
 
       {/* About */}
       <span className="section-label">About</span>
@@ -363,29 +421,21 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
         </div>
         <div style={{ fontSize: '11px', color: 'var(--gold)', marginTop: '0.5rem' }}>Colossians 1:10</div>
         <div style={{ height: '0.5px', background: 'var(--border)', margin: '0.875rem 0' }} />
-        <div style={{ fontSize: '11px', color: 'var(--silver)', opacity: 0.6 }}>
-          Built by <span style={{ color: 'var(--gold)' }}>OneTen Group</span> · onetengroup.ai
-        </div>
+        <div style={{ fontSize: '11px', color: 'var(--silver)', opacity: 0.6 }}>Built by <span style={{ color: 'var(--gold)' }}>OneTen Group</span> · onetengroup.ai</div>
       </div>
 
       {/* Feedback */}
       <div style={{ marginBottom: '0.75rem' }}>
         <a href="mailto:steve@onetengroup.ai?subject=DWJ Feedback&body=Hi Steve,%0D%0A%0D%0AHere's my feedback on Dinner with Jesus:%0D%0A%0D%0A" style={{ display: 'block', textDecoration: 'none' }}>
-          <button className="btn" style={{ color: 'var(--gold)', borderColor: 'var(--border-gold)', background: 'var(--gold-soft)', width: '100%' }}>
-            💬 Send Feedback
-          </button>
+          <button className="btn" style={{ color: 'var(--gold)', borderColor: 'var(--border-gold)', background: 'var(--gold-soft)', width: '100%' }}>💬 Send Feedback</button>
         </a>
       </div>
 
       {isAdmin && (
-        <button className="btn" style={{ marginBottom: '0.75rem', color: 'var(--gold)', borderColor: 'var(--border-gold)', background: 'var(--gold-soft)' }} onClick={onOpenAdmin}>
-          ⚙️ Admin Dashboard
-        </button>
+        <button className="btn" style={{ marginBottom: '0.75rem', color: 'var(--gold)', borderColor: 'var(--border-gold)', background: 'var(--gold-soft)' }} onClick={onOpenAdmin}>⚙️ Admin Dashboard</button>
       )}
 
-      <button className="btn" style={{ marginBottom: '2rem', color: '#E57373', borderColor: 'rgba(229,115,115,0.2)' }} onClick={signOut}>
-        Sign out
-      </button>
+      <button className="btn" style={{ marginBottom: '2rem', color: '#E57373', borderColor: 'rgba(229,115,115,0.2)' }} onClick={signOut}>Sign out</button>
 
       <div className={`toast ${toast ? 'show' : ''}`}>{toast}</div>
     </div>
