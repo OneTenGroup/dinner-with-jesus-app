@@ -22,9 +22,8 @@ function generateInviteCode() {
 
 export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmin, onJoined }) {
   const { user, profile, signOut, updateProfile } = useAuth()
-  const { reload } = useFamily()
+  const { allFamilies, reload, switchTable } = useFamily()
   const [toast, setToast] = useState('')
-  const [families, setFamilies] = useState([]) // support multiple tables
   const [joinCode, setJoinCode] = useState('')
   const [joining, setJoining] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -109,7 +108,7 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
           family_id: newFamily.id,
           user_id: user.id,
           display_name: profile?.name || 'Owner',
-          role: 'owner',
+          role: 'host',
           prayer_order: 1
         })
 
@@ -121,7 +120,6 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
 
       setNewFamilyName('')
       setCircleMode('none')
-      await loadFamilyInfo()
       await reload()
       showToast(`${newFamily.name} is ready! Share your code. 🙏`)
     } catch (err) {
@@ -173,7 +171,8 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
 
       setJoinCode('')
       setCircleMode('none')
-      await loadFamilyInfo()
+      // Set this as the active table so they see the right verse
+      await supabase.from('profiles').update({ active_family_id: familyData.id }).eq('id', user.id)
       await reload()
       showToast(`Welcome to ${familyData.name}! 🙏`)
       setTimeout(() => onJoined && onJoined(), 1200)
@@ -193,7 +192,6 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
         .eq('family_id', familyId)
 
       setShowLeaveConfirm(null)
-      await loadFamilyInfo()
       await reload()
       showToast('You have left the table.')
     } catch (err) {
@@ -259,13 +257,24 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
     if (!newName.trim()) { showToast('Enter a name.'); return }
     setAccountSaving(true)
     try {
+      // Update profiles table directly
+      const { error } = await supabase
+        .from('profiles')
+        .update({ name: newName.trim() })
+        .eq('id', user.id)
+      if (error) throw error
+      // Also update family_members display_name
+      await supabase
+        .from('family_members')
+        .update({ display_name: newName.trim() })
+        .eq('user_id', user.id)
+      // Update local profile state
       await updateProfile({ name: newName.trim() })
-      await supabase.from('profiles').update({ name: newName.trim() }).eq('id', user.id)
       showToast('Name updated ✓')
       setAccountMode('none')
       setNewName('')
     } catch (err) {
-      showToast('Could not update name.')
+      showToast('Could not update name. Try again.')
     }
     setAccountSaving(false)
   }
@@ -309,7 +318,7 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
     setTimeout(() => setToast(''), 2800)
   }
 
-  const hasFamilies = families.length > 0
+  const hasFamilies = allFamilies.length > 0
 
   return (
     <div className="screen" style={{ paddingTop: '1rem' }}>
@@ -433,14 +442,14 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
       <span className="section-label">Your Circles</span>
 
       {/* Existing tables */}
-      {families.map(family => (
+      {allFamilies.map(family => (
         <div key={family.id} className="card" style={{ marginBottom: '1rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
             <p style={{ fontSize: '13px', color: 'var(--white)', fontWeight: 500, margin: 0 }}>
               {family.name}
             </p>
             <span style={{ fontSize: '11px', color: 'var(--gold)', opacity: 0.7 }}>
-              {family.role === 'owner' ? 'Owner' : 'Member'}
+              {family.role === 'host' ? '⭐ Host' : 'Member'}
             </span>
           </div>
           <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '1rem', fontWeight: 300 }}>
@@ -456,7 +465,16 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
             <button className="btn btn-gold" onClick={() => shareInviteCode(family)}>📤 Share invite</button>
           </div>
 
-          {family.role === 'owner' && (
+          {/* Sit here tonight button */}
+          <button
+            className="btn btn-gold"
+            style={{ width: '100%', marginBottom: 8, fontSize: '13px' }}
+            onClick={() => switchTable(family.id)}
+          >
+            🍽️ Sit here tonight
+          </button>
+
+          {family.role === 'host' && (
             <button
               className="btn"
               onClick={() => handleRegenerateCode(family.id)}
