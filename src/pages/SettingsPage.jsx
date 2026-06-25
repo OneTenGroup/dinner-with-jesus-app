@@ -4,10 +4,11 @@ import { useFamily } from '../hooks/useFamily'
 import { supabase } from '../lib/supabase'
 
 const FAITH_LABELS = {
-  1: 'Seeker — gentle questions',
-  2: 'Growing — one layer deeper',
-  3: 'Deep — challenging & application'
+  1: 'Gentle, open-ended questions',
+  2: 'One layer deeper',
+  3: 'Challenging & application'
 }
+
 const TRANSLATIONS = ['KJV', 'NIV', 'NLT', 'ESV', 'NKJV']
 
 function generateInviteCode() {
@@ -23,17 +24,13 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
   const { user, profile, signOut, updateProfile } = useAuth()
   const { reload } = useFamily()
   const [toast, setToast] = useState('')
-  const [inviteCode, setInviteCode] = useState('')
+  const [families, setFamilies] = useState([]) // support multiple tables
   const [joinCode, setJoinCode] = useState('')
   const [joining, setJoining] = useState(false)
   const [creating, setCreating] = useState(false)
-  const [familyName, setFamilyName] = useState('')
   const [newFamilyName, setNewFamilyName] = useState('')
-  const [hasFamily, setHasFamily] = useState(false)
-  const [familyId, setFamilyId] = useState(null)
-  const [userRole, setUserRole] = useState('member')
   const [circleMode, setCircleMode] = useState('none')
-  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false)
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(null) // family_id to leave
   const [leaving, setLeaving] = useState(false)
   const [regenerating, setRegenerating] = useState(false)
 
@@ -48,21 +45,21 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
         .from('family_members')
         .select('family_id, role')
         .eq('user_id', user.id)
-        .single()
 
-      if (memberData?.family_id) {
-        setHasFamily(true)
-        setFamilyId(memberData.family_id)
-        setUserRole(memberData.role || 'member')
+      if (memberData && memberData.length > 0) {
+        const familyIds = memberData.map(m => m.family_id)
         const { data: familyData } = await supabase
           .from('families')
-          .select('name, invite_code')
-          .eq('id', memberData.family_id)
-          .single()
-        if (familyData) {
-          setFamilyName(familyData.name)
-          setInviteCode(familyData.invite_code || '')
-        }
+          .select('id, name, invite_code')
+          .in('id', familyIds)
+
+        const enriched = familyData?.map(f => ({
+          ...f,
+          role: memberData.find(m => m.family_id === f.id)?.role || 'member'
+        })) || []
+        setFamilies(enriched)
+      } else {
+        setFamilies([])
       }
     } catch (err) {
       // No family yet
@@ -116,13 +113,9 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
         return
       }
 
-      setFamilyName(newFamily.name)
-      setInviteCode(newFamily.invite_code)
-      setFamilyId(newFamily.id)
-      setUserRole('owner')
-      setHasFamily(true)
-      setCircleMode('none')
       setNewFamilyName('')
+      setCircleMode('none')
+      await loadFamilyInfo()
       await reload()
       showToast(`${newFamily.name} is ready! Share your code. 🙏`)
     } catch (err) {
@@ -173,7 +166,6 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
       })
 
       setJoinCode('')
-      setHasFamily(true)
       setCircleMode('none')
       await loadFamilyInfo()
       await reload()
@@ -184,7 +176,7 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
     setJoining(false)
   }
 
-  async function handleLeaveTable() {
+  async function handleLeaveTable(familyId) {
     setLeaving(true)
     try {
       await supabase
@@ -193,12 +185,8 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
         .eq('user_id', user.id)
         .eq('family_id', familyId)
 
-      setHasFamily(false)
-      setFamilyId(null)
-      setFamilyName('')
-      setInviteCode('')
-      setUserRole('member')
-      setShowLeaveConfirm(false)
+      setShowLeaveConfirm(null)
+      await loadFamilyInfo()
       await reload()
       showToast('You have left the table.')
     } catch (err) {
@@ -207,7 +195,7 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
     setLeaving(false)
   }
 
-  async function handleRegenerateCode() {
+  async function handleRegenerateCode(familyId) {
     setRegenerating(true)
     try {
       let code = generateInviteCode()
@@ -226,7 +214,7 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
       if (error) {
         showToast('Could not regenerate code. Try again.')
       } else {
-        setInviteCode(code)
+        await loadFamilyInfo()
         showToast('New invite code generated! ✓')
       }
     } catch (err) {
@@ -235,13 +223,13 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
     setRegenerating(false)
   }
 
-  function copyInviteCode() {
-    navigator.clipboard.writeText(inviteCode)
+  function copyInviteCode(code) {
+    navigator.clipboard.writeText(code)
     showToast('Invite code copied! ✓')
   }
 
-  function shareInviteCode() {
-    const msg = `Join my table on Dinner with Jesus!\n\nEnter this code in the app Settings:\n${inviteCode}\n\nDownload at flippingtables.ai`
+  function shareInviteCode(family) {
+    const msg = `Join my table on Dinner with Jesus!\n\nEnter this code in the app Settings:\n${family.invite_code}\n\nDownload at flippingtables.ai`
     if (navigator.share) {
       navigator.share({ text: msg })
     } else {
@@ -257,7 +245,7 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
 
   async function handleFaithLevel(level) {
     await updateProfile({ faith_level: level })
-    showToast('Faith level updated ✓')
+    showToast('Faith journey level updated ✓')
   }
 
   function showToast(msg) {
@@ -265,7 +253,7 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
     setTimeout(() => setToast(''), 2800)
   }
 
-  const isOwner = userRole === 'owner'
+  const hasFamilies = families.length > 0
 
   return (
     <div className="screen" style={{ paddingTop: '1rem' }}>
@@ -291,16 +279,17 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
       </div>
 
       {/* Circles */}
-      <span className="section-label">Your Circle</span>
+      <span className="section-label">Your Circles</span>
 
-      {hasFamily ? (
-        <div className="card" style={{ marginBottom: '1.5rem' }}>
+      {/* Existing tables */}
+      {families.map(family => (
+        <div key={family.id} className="card" style={{ marginBottom: '1rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
             <p style={{ fontSize: '13px', color: 'var(--white)', fontWeight: 500, margin: 0 }}>
-              {familyName || 'Your Table'}
+              {family.name}
             </p>
             <span style={{ fontSize: '11px', color: 'var(--gold)', opacity: 0.7 }}>
-              {isOwner ? 'Owner' : 'Member'}
+              {family.role === 'owner' ? 'Owner' : 'Member'}
             </span>
           </div>
           <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '1rem', fontWeight: 300 }}>
@@ -308,19 +297,18 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
           </p>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--bg3)', borderRadius: 10, padding: '0.875rem 1rem', border: '0.5px solid var(--border-gold)', marginBottom: '0.875rem' }}>
             <div style={{ fontFamily: 'Lora, serif', fontSize: '1.8rem', fontWeight: 600, color: 'var(--gold)', letterSpacing: '0.2em', flex: 1, textAlign: 'center' }}>
-              {inviteCode || '------'}
+              {family.invite_code || '------'}
             </div>
           </div>
           <div className="btn-row">
-            <button className="btn" onClick={copyInviteCode}>📋 Copy code</button>
-            <button className="btn btn-gold" onClick={shareInviteCode}>📤 Share invite</button>
+            <button className="btn" onClick={() => copyInviteCode(family.invite_code)}>📋 Copy code</button>
+            <button className="btn btn-gold" onClick={() => shareInviteCode(family)}>📤 Share invite</button>
           </div>
 
-          {/* Owner-only: regenerate code */}
-          {isOwner && (
+          {family.role === 'owner' && (
             <button
               className="btn"
-              onClick={handleRegenerateCode}
+              onClick={() => handleRegenerateCode(family.id)}
               disabled={regenerating}
               style={{ marginTop: 8, width: '100%', fontSize: '12px', color: 'var(--silver)' }}
             >
@@ -328,34 +316,25 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
             </button>
           )}
 
-          {/* Leave table */}
           <div style={{ marginTop: '1rem', borderTop: '0.5px solid var(--border)', paddingTop: '0.875rem' }}>
-            {!showLeaveConfirm ? (
+            {showLeaveConfirm !== family.id ? (
               <button
                 className="btn"
-                onClick={() => setShowLeaveConfirm(true)}
+                onClick={() => setShowLeaveConfirm(family.id)}
                 style={{ width: '100%', fontSize: '12px', color: '#E57373', borderColor: 'rgba(229,115,115,0.2)' }}
               >
-                {isOwner ? '🚪 Leave & close table' : '🚪 Leave this table'}
+                🚪 Leave this table
               </button>
             ) : (
               <div style={{ textAlign: 'center' }}>
                 <p style={{ fontSize: '13px', color: 'var(--silver)', marginBottom: '0.75rem' }}>
-                  {isOwner
-                    ? 'Are you sure? This will remove you from the table. Others can still use the invite code.'
-                    : 'Are you sure you want to leave this table?'}
+                  Are you sure you want to leave {family.name}?
                 </p>
                 <div className="btn-row">
+                  <button className="btn" onClick={() => setShowLeaveConfirm(null)} style={{ flex: 1 }}>Cancel</button>
                   <button
                     className="btn"
-                    onClick={() => setShowLeaveConfirm(false)}
-                    style={{ flex: 1 }}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    className="btn"
-                    onClick={handleLeaveTable}
+                    onClick={() => handleLeaveTable(family.id)}
                     disabled={leaving}
                     style={{ flex: 1, color: '#E57373', borderColor: 'rgba(229,115,115,0.2)' }}
                   >
@@ -370,85 +349,76 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
             Anyone with this code can join your table.
           </p>
         </div>
-      ) : (
-        <div className="card" style={{ marginBottom: '1.5rem' }}>
-          {circleMode === 'none' && (
-            <>
-              <p style={{ fontSize: '13px', color: 'var(--silver)', marginBottom: '1rem', lineHeight: 1.6 }}>
-                Start your own table or join one you've been invited to.
-              </p>
-              <div className="btn-row">
-                <button className="btn btn-gold" onClick={() => setCircleMode('create')}>
-                  🍽️ Start a table
-                </button>
-                <button className="btn" onClick={() => setCircleMode('join')}>
-                  🔑 Join a table
-                </button>
-              </div>
-            </>
-          )}
+      ))}
 
-          {circleMode === 'create' && (
-            <>
-              <p style={{ fontSize: '13px', color: 'var(--white)', marginBottom: '0.25rem', fontWeight: 500 }}>
-                Name your table
-              </p>
-              <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.875rem', fontWeight: 300 }}>
-                Usually your family name — e.g. "The Crawfords"
-              </p>
-              <input
-                type="text"
-                placeholder="The ___ Family"
-                value={newFamilyName}
-                onChange={e => setNewFamilyName(e.target.value)}
-                maxLength={40}
-                style={{ marginBottom: 8 }}
-              />
-              <button
-                className="btn btn-gold"
-                onClick={handleCreateFamily}
-                disabled={creating}
-                style={{ marginBottom: 8 }}
-              >
-                {creating ? 'Setting the table...' : 'Create my table 🙏'}
+      {/* Create / Join — always available, even if you already have tables */}
+      <div className="card" style={{ marginBottom: '1.5rem' }}>
+        {circleMode === 'none' && (
+          <>
+            <p style={{ fontSize: '13px', color: 'var(--silver)', marginBottom: '1rem', lineHeight: 1.6 }}>
+              {hasFamilies ? 'Start another table or join one you've been invited to.' : 'Start your own table or join one you've been invited to.'}
+            </p>
+            <div className="btn-row">
+              <button className="btn btn-gold" onClick={() => setCircleMode('create')}>
+                🍽️ Start a table
               </button>
-              <button className="btn-ghost" onClick={() => setCircleMode('none')} style={{ fontSize: '13px', color: 'var(--silver)', background: 'none', border: 'none', cursor: 'pointer', width: '100%', padding: '6px 0' }}>
-                Cancel
+              <button className="btn" onClick={() => setCircleMode('join')}>
+                🔑 Join a table
               </button>
-            </>
-          )}
+            </div>
+          </>
+        )}
 
-          {circleMode === 'join' && (
-            <>
-              <p style={{ fontSize: '13px', color: 'var(--white)', marginBottom: '0.25rem', fontWeight: 500 }}>
-                Join a table
-              </p>
-              <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.875rem', fontWeight: 300 }}>
-                Enter the 6-character code from the person who invited you.
-              </p>
-              <input
-                type="text"
-                placeholder="Enter invite code"
-                value={joinCode}
-                onChange={e => setJoinCode(e.target.value.toUpperCase())}
-                maxLength={6}
-                style={{ marginBottom: 8, textAlign: 'center', fontSize: '1.2rem', letterSpacing: '0.2em', textTransform: 'uppercase' }}
-              />
-              <button
-                className="btn btn-gold"
-                onClick={handleJoinFamily}
-                disabled={joining}
-                style={{ marginBottom: 8 }}
-              >
-                {joining ? 'Joining...' : 'Join this table 🙏'}
-              </button>
-              <button className="btn-ghost" onClick={() => setCircleMode('none')} style={{ fontSize: '13px', color: 'var(--silver)', background: 'none', border: 'none', cursor: 'pointer', width: '100%', padding: '6px 0' }}>
-                Cancel
-              </button>
-            </>
-          )}
-        </div>
-      )}
+        {circleMode === 'create' && (
+          <>
+            <p style={{ fontSize: '13px', color: 'var(--white)', marginBottom: '0.25rem', fontWeight: 500 }}>
+              Name your table
+            </p>
+            <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.875rem', fontWeight: 300 }}>
+              Usually your family name — e.g. "The Crawfords"
+            </p>
+            <input
+              type="text"
+              placeholder="The ___ Family"
+              value={newFamilyName}
+              onChange={e => setNewFamilyName(e.target.value)}
+              maxLength={40}
+              style={{ marginBottom: 8 }}
+            />
+            <button className="btn btn-gold" onClick={handleCreateFamily} disabled={creating} style={{ marginBottom: 8 }}>
+              {creating ? 'Setting the table...' : 'Create my table 🙏'}
+            </button>
+            <button className="btn-ghost" onClick={() => setCircleMode('none')} style={{ fontSize: '13px', color: 'var(--silver)', background: 'none', border: 'none', cursor: 'pointer', width: '100%', padding: '6px 0' }}>
+              Cancel
+            </button>
+          </>
+        )}
+
+        {circleMode === 'join' && (
+          <>
+            <p style={{ fontSize: '13px', color: 'var(--white)', marginBottom: '0.25rem', fontWeight: 500 }}>
+              Join a table
+            </p>
+            <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.875rem', fontWeight: 300 }}>
+              Enter the 6-character code from the person who invited you. You can be part of multiple tables.
+            </p>
+            <input
+              type="text"
+              placeholder="Enter invite code"
+              value={joinCode}
+              onChange={e => setJoinCode(e.target.value.toUpperCase())}
+              maxLength={6}
+              style={{ marginBottom: 8, textAlign: 'center', fontSize: '1.2rem', letterSpacing: '0.2em', textTransform: 'uppercase' }}
+            />
+            <button className="btn btn-gold" onClick={handleJoinFamily} disabled={joining} style={{ marginBottom: 8 }}>
+              {joining ? 'Joining...' : 'Join this table 🙏'}
+            </button>
+            <button className="btn-ghost" onClick={() => setCircleMode('none')} style={{ fontSize: '13px', color: 'var(--silver)', background: 'none', border: 'none', cursor: 'pointer', width: '100%', padding: '6px 0' }}>
+              Cancel
+            </button>
+          </>
+        )}
+      </div>
 
       {/* Table Members */}
       <span className="section-label">Table Members</span>
@@ -470,15 +440,19 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
       </div>
 
       {/* Faith Level */}
-      <span className="section-label">Faith Journey Level</span>
+      <span className="section-label">Faith Journey</span>
       <div style={{ marginBottom: '1.5rem' }}>
-        {[1, 2, 3].map(level => (
+        {[
+          { level: 1, label: 'Exploring' },
+          { level: 2, label: 'Growing' },
+          { level: 3, label: 'Going Deeper' }
+        ].map(({ level, label }) => (
           <div key={level} className="card"
             style={{ marginBottom: 6, cursor: 'pointer', borderColor: profile?.faith_level === level ? 'var(--gold)' : 'var(--border)', background: profile?.faith_level === level ? 'var(--gold-soft)' : 'var(--bg2)' }}
             onClick={() => handleFaithLevel(level)}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div>
-                <div style={{ fontSize: '14px', color: 'var(--cream)' }}>Level {level}</div>
+                <div style={{ fontSize: '14px', color: 'var(--cream)' }}>{label}</div>
                 <div style={{ fontSize: '12px', color: 'var(--silver)', marginTop: 2 }}>{FAITH_LABELS[level]}</div>
               </div>
               {profile?.faith_level === level && (
@@ -503,7 +477,7 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
         ))}
       </div>
       <p style={{ fontSize: '11px', color: 'var(--silver)', opacity: 0.6, marginBottom: '1.5rem', fontStyle: 'italic' }}>
-        KJV is fully loaded. Other translations coming soon.
+        WEB translation loaded. Other translations coming soon.
       </p>
 
       {/* About */}
@@ -513,7 +487,7 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
         <div style={{ fontSize: '12px', color: 'var(--silver)' }}>A table for every family · 1:10</div>
         <div style={{ height: '0.5px', background: 'var(--border)', margin: '0.875rem 0' }} />
         <div style={{ fontSize: '12px', color: 'var(--silver)', fontStyle: 'italic', lineHeight: 1.7 }}>
-          "That ye might walk worthy of the Lord unto all pleasing, being fruitful in every good work, and increasing in the knowledge of God."
+          "That you may walk worthily of the Lord, to please him in all respects, bearing fruit in every good work, and increasing in the knowledge of God."
         </div>
         <div style={{ fontSize: '11px', color: 'var(--gold)', marginTop: '0.5rem' }}>Colossians 1:10</div>
         <div style={{ height: '0.5px', background: 'var(--border)', margin: '0.875rem 0' }} />
