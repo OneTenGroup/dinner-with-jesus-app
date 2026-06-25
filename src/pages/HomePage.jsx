@@ -1,62 +1,105 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import BiblePage from './BiblePage'
 
-const PRAYERS = {
-  Wisdom: "Lord, your wisdom is so much better than ours. Tonight we sat around this table and actually talked — about your Word and about our lives. Help us carry what we said into tomorrow. Amen.",
-  Hope: "God of hope, thank you for this table. Thank you for the reminder tonight that you hold the future — and it's good. Give us hope for what's ahead. Amen.",
-  Love: "Father, we don't always love well. But we want to. Thank you for showing us what love looks like and for the people at this table who are trying to live it. Amen.",
-  Faith: "Lord, increase our faith. Thank you for tonight — for the reminder that you are faithful even when we're not. We trust you with what we can't see. Amen.",
-  Courage: "God, thank you that we don't face what's ahead alone. Give this family courage. We go into tomorrow knowing you go first. Amen.",
-  Forgiveness: "Father, forgiveness is hard. Receiving it and giving it. Thank you that yours is complete. Help us be a little more like that with each other. Amen.",
-  Gratitude: "Lord, we have so much more than we notice most days. Thank you for this food, this table, these people. Help us be grateful people tomorrow too. Amen.",
-  Peace: "Father, your peace is not what the world gives. It doesn't depend on circumstances. It depends on you. Settle our hearts tonight and carry us into tomorrow. Amen.",
-  Purpose: "Lord, help us walk worthy of the calling you've placed on our lives. Not perfectly — faithfully. Bearing fruit in every good work. Amen.",
-  Identity: "God, remind us tonight who we are — made in your image, called by name, fully known and fully loved. May we live from that truth. Amen.",
-  Community: "Father, thank you for the people at this table. This is the church — two or three gathered in your name, with you in the midst. Don't let us take that lightly. Amen.",
-  Prayer: "Lord, teach us to pray. Not as a religious duty — as a conversation. Without ceasing. In everything. Help us carry that into tomorrow. Amen.",
-  Perseverance: "God, we will not give up. Not on you, not on each other, not on the good work you've started in us. Give us what we need to keep going. Amen.",
-  Surrender: "Father, we lay it down tonight. All of it. The plans, the fears, the outcomes. Into your hands. You are better at this than we are. Amen.",
-  Redemption: "Lord, you make all things new. The ashes, the lost years, the broken places — you trade them for something beautiful. We trust you with ours tonight. Amen.",
-  Joy: "God, the joy of the Lord is our strength. Not happiness — joy. The kind that holds through hard things. Fill us with it tonight. Amen.",
-  Family: "Father, build this house. Unless you build it, we labor in vain. Be the foundation of this family — in every conversation, every meal, every ordinary night. Amen.",
-  Grace: "Lord, thank you that we don't earn it and can't lose it. Grace all the way down. Help us receive it fully and give it away freely. Amen."
+const GREETINGS = {
+  morning: [
+    { msg: "Good morning. The table's set and the day is ahead of you.", sub: "Start it with something that matters." },
+    { msg: "Morning! God's mercies are new today. Every single one.", sub: "What are we eating? Who's with us?" },
+    { msg: "Rise and shine. Someone's been waiting to sit with you.", sub: "Morning verse incoming." },
+    { msg: "Before the day gets away from you — let's start here.", sub: "Two minutes at the table changes everything." },
+  ],
+  afternoon: [
+    { msg: "Good afternoon. Step away for five minutes.", sub: "This is worth it. Promise." },
+    { msg: "Halfway through the day. How are you actually doing?", sub: "A good conversation starts here." },
+  ],
+  evening: [
+    { msg: "The table is ready. So is He.", sub: "Pull up a chair. Someone's been waiting." },
+    { msg: "Good evening. You made it through today. That counts for something.", sub: "Let's end it well." },
+    { msg: "Hey, it's been a day. Sit down. Take a breath.", sub: "The verse tonight might be exactly what you need." },
+    { msg: "Welcome back. He's been here the whole time.", sub: "Glad you're here." },
+    { msg: "The table is set. The family is together. That's already a blessing.", sub: "Let's make it a great one." },
+  ]
 }
 
-export default function TablePage({ activeMembers, onDiscussed, stats }) {
-  const { user, profile } = useAuth()
-  const [verse, setVerse] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
-  const [prayerIdx, setPrayerIdx] = useState(0)
-  const [showPrayer, setShowPrayer] = useState(false)
-  const [noteText, setNoteText] = useState('')
-  const [showInvite, setShowInvite] = useState(false)
-  const [toast, setToast] = useState('')
-  const [discussed, setDiscussed] = useState([])
-  const [prayedCount, setPrayedCount] = useState(0)
+const FEELINGS = [
+  { emoji: '😰', label: 'Fear', key: 'fear' },
+  { emoji: '😤', label: 'Anger', key: 'anger' },
+  { emoji: '😔', label: 'Sadness', key: 'sadness' },
+  { emoji: '😕', label: 'Lost', key: 'lost' },
+  { emoji: '🙏', label: 'Grateful', key: 'grateful' },
+  { emoji: '💪', label: 'Need strength', key: 'strength' },
+  { emoji: '❤️', label: 'Need love', key: 'love' },
+  { emoji: '😟', label: 'Anxious', key: 'anxious' },
+  { emoji: '🌊', label: 'Overwhelmed', key: 'overwhelmed' },
+  { emoji: '⚡', label: 'Temptation', key: 'temptation' },
+  { emoji: '🕊', label: 'Need peace', key: 'peace' },
+  { emoji: '🌟', label: 'Direction', key: 'direction' },
+]
+
+const sectionStyle = {
+  background: 'var(--bg2)',
+  border: '0.5px solid var(--border-gold)',
+  borderRadius: '12px',
+  padding: '1.25rem',
+  marginBottom: '1rem',
+  position: 'relative',
+  overflow: 'hidden',
+}
+
+const sectionTitleStyle = {
+  fontFamily: 'Lora, serif',
+  fontSize: '1rem',
+  fontWeight: 600,
+  color: 'var(--white)',
+  letterSpacing: '0.02em',
+  marginBottom: '0.35rem',
+  display: 'block',
+}
+
+const sectionSubStyle = {
+  fontSize: '13px',
+  color: 'var(--silver2)',
+  fontStyle: 'italic',
+  fontWeight: 300,
+  marginBottom: '1rem',
+  lineHeight: 1.5,
+}
+
+export default function HomePage({ onGoToTable, activeMembers, setActiveMembers, allMembers, stats }) {
+  const { profile, user } = useAuth()
+  const [greeting, setGreeting] = useState({ msg: 'Welcome.', sub: '' })
+  const [currentTime, setCurrentTime] = useState('')
+  const [timeVerses, setTimeVerses] = useState([])
+  const [timeLoading, setTimeLoading] = useState(false)
+  const [timeLoaded, setTimeLoaded] = useState(false)
+  const [selectedTimeVerse, setSelectedTimeVerse] = useState(null)
+  const [announcement, setAnnouncement] = useState(null)
+  const [bannerDismissed, setBannerDismissed] = useState(false)
   const [inviteCode, setInviteCode] = useState('')
+  const [familyName, setFamilyName] = useState('')
 
-  const faithLevel = profile?.faith_level || 1
+  const [selectedFeeling, setSelectedFeeling] = useState(null)
+  const [feelingVerse, setFeelingVerse] = useState(null)
+  const [feelingVerseIdx, setFeelingVerseIdx] = useState(0)
+  const [feelingLoading, setFeelingLoading] = useState(false)
+  const [showFeelingPopup, setShowFeelingPopup] = useState(false)
+  const [showPrayOverlay, setShowPrayOverlay] = useState(false)
+  const [showBible, setShowBible] = useState(false)
 
-  useEffect(() => { loadEverything() }, [])
+  const familyMembers = allMembers || []
 
-  async function loadEverything() {
-    setLoading(true)
-    setError(null)
-    try {
-      const { data: historyData } = await supabase
-        .from('verse_history')
-        .select('dinner_verse_id')
-      const discussedIds = historyData?.map(d => d.dinner_verse_id) || []
-      setDiscussed(discussedIds)
-      await loadVerse(discussedIds)
-      await loadInviteCode()
-    } catch (err) {
-      setError('Could not load. Please try again.')
-      setLoading(false)
-    }
-  }
+  useEffect(() => {
+    const h = new Date().getHours()
+    const pool = h < 11 ? GREETINGS.morning : h < 17 ? GREETINGS.afternoon : GREETINGS.evening
+    setGreeting(pool[Math.floor(Math.random() * pool.length)])
+    updateTime()
+    const timer = setInterval(updateTime, 30000)
+    loadAnnouncement()
+    loadInviteCode()
+    return () => clearInterval(timer)
+  }, [])
 
   async function loadInviteCode() {
     if (!user?.id) return
@@ -70,231 +113,112 @@ export default function TablePage({ activeMembers, onDiscussed, stats }) {
       if (memberData?.family_id) {
         const { data: familyData } = await supabase
           .from('families')
-          .select('invite_code')
+          .select('name, invite_code')
           .eq('id', memberData.family_id)
           .single()
-        if (familyData?.invite_code) setInviteCode(familyData.invite_code)
-      }
-    } catch (err) { /* no family */ }
-  }
-
-  async function loadVerse(discussedIds) {
-    setLoading(true)
-    try {
-      // Get the family id for this user
-      const { data: memberData } = await supabase
-        .from('family_members')
-        .select('family_id, role')
-        .eq('user_id', user.id)
-        .order('role', { ascending: false }) // owner first ('owner' > 'member' alphabetically)
-        .limit(1)
-        .single()
-
-      const familyId = memberData?.family_id
-
-      // Check sticky note — has this family already picked a verse today?
-      if (familyId) {
-        const today = new Date().toISOString().split('T')[0]
-        const { data: stickyNote } = await supabase
-          .from('family_verse')
-          .select('dinner_verse_id')
-          .eq('family_id', familyId)
-          .eq('verse_date', today)
-          .single()
-
-        if (stickyNote?.dinner_verse_id) {
-          // Sticky note exists — load that exact verse
-          const { data: verseData } = await supabase
-            .from('dinner_verses')
-            .select('*')
-            .eq('id', stickyNote.dinner_verse_id)
-            .single()
-          if (verseData) {
-            setVerse(verseData)
-            setLoading(false)
-            return
-          }
+        if (familyData) {
+          setInviteCode(familyData.invite_code || '')
+          setFamilyName(familyData.name || '')
         }
       }
+    } catch (err) {}
+  }
 
-      // No sticky note yet — pick a new verse and write the note
-      const { data, error } = await supabase
-        .from('dinner_verses')
+  async function loadAnnouncement() {
+    try {
+      const dismissed = localStorage.getItem('dwj_announcement_dismissed')
+      const { data } = await supabase
+        .from('announcements')
         .select('*')
         .eq('active', true)
-        .limit(200)
-
-      if (error) throw error
-      if (!data || data.length === 0) {
-        setError('No verses found in database.')
-        setLoading(false)
-        return
+        .order('created_at', { ascending: false })
+        .limit(1)
+      if (data && data.length > 0) {
+        const ann = data[0]
+        if (dismissed !== ann.id) {
+          setAnnouncement(ann)
+        }
       }
-
-      const ids = discussedIds !== undefined ? discussedIds : discussed
-      const available = ids.length > 0 ? data.filter(v => !ids.includes(v.id)) : data
-      const pool = available.length > 0 ? available : data
-      const picked = pool[Math.floor(Math.random() * pool.length)]
-      setVerse(picked)
-
-      // Write the sticky note so everyone else in the family sees the same verse
-      if (familyId && picked) {
-        const today = new Date().toISOString().split('T')[0]
-        await supabase
-          .from('family_verse')
-          .upsert({
-            family_id: familyId,
-            dinner_verse_id: picked.id,
-            verse_date: today
-          }, { onConflict: 'family_id,verse_date' })
-      }
-    } catch (err) {
-      setError('Could not load verse. Please try again.')
-    }
-    setLoading(false)
+    } catch (err) {}
   }
 
-  async function newVerse() { await loadVerse(discussed) }
-
-  async function markDiscussed() {
-    if (!verse) return
-    try {
-      await supabase.from('verse_history').upsert({
-        dinner_verse_id: verse.id,
-        discussed_at: new Date().toISOString()
-      })
-      const newDiscussed = [...discussed, verse.id]
-      setDiscussed(newDiscussed)
-      onDiscussed()
-      showToast('Beautiful conversation tonight. 🙏')
-      setTimeout(() => loadVerse(newDiscussed), 1800)
-    } catch (err) {
-      showToast('Could not save. Please try again.')
+  function dismissBanner() {
+    if (announcement) {
+      localStorage.setItem('dwj_announcement_dismissed', announcement.id)
     }
+    setBannerDismissed(true)
   }
 
-  async function saveNote() {
-    if (!noteText.trim()) { showToast('Write something first.'); return }
+  function updateTime() {
+    const now = new Date()
+    let h = now.getHours() % 12 || 12
+    const m = now.getMinutes().toString().padStart(2, '0')
+    setCurrentTime(`${h}:${m}`)
+  }
+
+  function toggleMember(name) {
+    setActiveMembers(prev =>
+      prev.includes(name) ? prev.filter(m => m !== name) : [...prev, name]
+    )
+  }
+
+  async function loadTimeVerses() {
+    if (timeLoaded) return
+    setTimeLoading(true)
+    const now = new Date()
+    const h = now.getHours() % 12 || 12
+    const m = now.getMinutes()
     try {
-      const { data: memberData } = await supabase
-        .from('family_members')
-        .select('family_id')
-        .eq('user_id', user.id)
-        .single()
-
-      const { error } = await supabase.from('notes').insert({
-        user_id: user.id,
-        verse_ref: verse?.verse_ref,
-        category: verse?.category,
-        content: noteText,
-        family_id: memberData?.family_id || null
-      })
-
+      const { data, error } = await supabase
+        .from('bible_verses')
+        .select('id, book, book_abbr, chapter, verse, text_kjv')
+        .eq('chapter', h)
+        .eq('verse', m)
+        .order('book_order')
       if (error) throw error
-      showToast('Saved to your journal. ✓')
-      setNoteText('')
-      onDiscussed()
+      setTimeVerses(data || [])
+      setTimeLoaded(true)
     } catch (err) {
-      showToast('Could not save note.')
+      console.error('Time verse error:', err)
     }
+    setTimeLoading(false)
   }
 
-  function getQuestion(level) {
-    if (!verse) return ''
-    if (level === 3) return verse.question_level_3 || verse.question_level_1
-    if (level === 2) return verse.question_level_2 || verse.question_level_1
-    return verse.question_level_1
-  }
-
-  function getPrayer() {
-    if (!verse) return ''
-    if (faithLevel === 3 && verse.prayer_level_3) return verse.prayer_level_3
-    if (faithLevel === 2 && verse.prayer_level_2) return verse.prayer_level_2
-    return verse.prayer_level_1 || PRAYERS[verse.category] || PRAYERS['Faith']
-  }
-
-  function nextPrayer() {
-    const members = activeMembers || []
-    const newIdx = prayerIdx + 1
-    setPrayerIdx(newIdx)
-    setPrayedCount(c => c + 1)
-
-    if (members.length === 0) {
-      showToast('Prayer complete. Amen. 🙏')
-      return
+  async function selectFeeling(key) {
+    setSelectedFeeling(key)
+    setFeelingVerseIdx(0)
+    setShowFeelingPopup(true)
+    setFeelingLoading(true)
+    try {
+      const { data } = await supabase
+        .from('feeling_verses')
+        .select('*')
+        .eq('feeling_key', key)
+        .order('display_order')
+      if (data && data.length > 0) setFeelingVerse(data[0])
+      else setFeelingVerse(null)
+    } catch (err) {
+      setFeelingVerse(null)
     }
-
-    const justPrayed = members[prayerIdx % members.length]
-    const upNext = members[newIdx % members.length]
-
-    if (members.length === 1) {
-      showToast(`${justPrayed} prayed. Amen. 🙏`)
-      return
-    }
-
-    if (newIdx >= members.length) {
-      showToast(`${justPrayed} prayed. Everyone has prayed tonight. 🙏`)
-    } else {
-      showToast(`${justPrayed} prayed. ${upNext} is up next. 🙏`)
-    }
+    setFeelingLoading(false)
   }
 
-  function sendTableInvite() {
-    const code = inviteCode || '______'
-    const msg = encodeURIComponent(`Hey — join us at the dinner table tonight on Dinner with Jesus!\n\nDownload the app at flippingtables.ai and enter this code in Settings:\n\n${code}\n\nIt takes 15 minutes. One verse. Real conversation. You won't regret it. 🙏`)
-    window.open(`sms:?body=${msg}`)
+  async function nextFeelingVerse() {
+    const newIdx = feelingVerseIdx + 1
+    setFeelingVerseIdx(newIdx)
+    setFeelingLoading(true)
+    try {
+      const { data } = await supabase
+        .from('feeling_verses')
+        .select('*')
+        .eq('feeling_key', selectedFeeling)
+        .order('display_order')
+      if (data && data.length > 0) setFeelingVerse(data[newIdx % data.length])
+    } catch (err) {}
+    setFeelingLoading(false)
   }
 
-  function sendTonightInvite() {
-    if (!verse) return
-    const msg = encodeURIComponent(`Hey — we're having Dinner with Jesus tonight. Join us?\n\nTonight's verse: ${verse.verse_ref}\n"${verse.verse_text?.substring(0, 80)}..."\n\nDownload at flippingtables.ai`)
-    window.open(`sms:?body=${msg}`)
-  }
-
-  function shareVerse() {
-    if (!verse) return
-    const msg = encodeURIComponent(`Thinking of you.\n\n${verse.verse_ref}\n"${verse.verse_text}"\n\n🙏`)
-    window.open(`sms:?body=${msg}`)
-  }
-
-  function showToast(msg) {
-    setToast(msg)
-    setTimeout(() => setToast(''), 3000)
-  }
-
-  const h = new Date().getHours()
-  const mealLabel = h < 11 ? '☀️ Morning verse' : h < 17 ? '🌤 Afternoon verse' : '🌙 Tonight\'s verse'
-  const members = activeMembers || []
-  const currentMember = members.length > 0 ? members[prayerIdx % members.length] : null
-  const nextMember = members.length > 1 ? members[(prayerIdx + 1) % members.length] : null
-  const allPrayed = members.length > 0 && prayedCount >= members.length
-
-  if (loading) return (
-    <div className="loading-wrap" style={{ flex: 1 }}>
-      <div className="loading-cross">✝️</div>
-      <p style={{ color: 'var(--silver)', fontSize: '14px' }}>Preparing your verse...</p>
-    </div>
-  )
-
-  if (error) return (
-    <div className="loading-wrap" style={{ flex: 1 }}>
-      <p style={{ color: '#E57373', fontSize: '14px', textAlign: 'center', padding: '1rem' }}>{error}</p>
-      <button className="btn btn-gold" style={{ width: 'auto', padding: '10px 2rem', marginTop: '1rem' }} onClick={loadEverything}>
-        Try again
-      </button>
-    </div>
-  )
-
-  if (!verse) return (
-    <div className="loading-wrap" style={{ flex: 1 }}>
-      <p style={{ color: 'var(--silver)', fontSize: '14px' }}>No verses available.</p>
-      <button className="btn" style={{ marginTop: '1rem' }} onClick={loadEverything}>Refresh</button>
-    </div>
-  )
-
-  const goldAccent = { position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: 'linear-gradient(90deg, var(--gold), transparent)' }
-  const cardBase = { position: 'relative', overflow: 'hidden', background: 'var(--bg2)', border: '0.5px solid var(--border-gold)', borderRadius: '12px', padding: '1.25rem', marginBottom: '0.875rem' }
-  const sectionTitle = { fontFamily: 'Lora, serif', fontSize: '1rem', fontWeight: 600, color: 'var(--white)', letterSpacing: '0.02em', marginBottom: '0.25rem', display: 'block' }
+  const feeling = FEELINGS.find(f => f.key === selectedFeeling)
 
   const conversationMsg = stats.conversations === 0
     ? "Your first conversation hasn't happened yet. Tonight could be the night. 🙏"
@@ -305,176 +229,250 @@ export default function TablePage({ activeMembers, onDiscussed, stats }) {
   return (
     <div className="screen" style={{ paddingTop: '1rem' }}>
 
-      {/* Meal label */}
-      <div style={{ fontSize: '12px', letterSpacing: '0.15em', textTransform: 'uppercase', color: 'var(--silver2)', marginBottom: '1rem', fontWeight: 500 }}>
-        {mealLabel}
+      {/* Bible Reader */}
+      {showBible && <BiblePage onClose={() => setShowBible(false)} />}
+
+      {/* Announcement Banner */}
+      {announcement && !bannerDismissed && (
+        <div style={{
+          position: 'sticky',
+          top: 0,
+          zIndex: 50,
+          background: 'var(--bg3)',
+          border: '0.5px solid rgba(76,175,118,0.4)',
+          borderRadius: '10px',
+          padding: '0.75rem 1rem',
+          marginBottom: '1rem',
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: '10px',
+          borderLeft: '3px solid var(--gold)',
+        }}>
+          <span style={{ fontSize: '1rem', flexShrink: 0, marginTop: '1px' }}>📣</span>
+          <p style={{ fontSize: '13px', color: 'var(--cream)', lineHeight: 1.6, flex: 1, margin: 0 }}>
+            {announcement.message}
+          </p>
+          <button
+            onClick={dismissBanner}
+            style={{ background: 'none', border: 'none', color: 'var(--silver)', fontSize: '16px', cursor: 'pointer', padding: '0 0 0 8px', flexShrink: 0, lineHeight: 1 }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* Brand */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: '1.25rem' }}>
+        <div className="cross" style={{ width: 28, height: 28 }}></div>
+        <div style={{ fontFamily: 'Lora, serif', fontSize: '1.05rem', fontWeight: 600, color: 'var(--white)' }}>
+          Dinner with <span style={{ color: 'var(--gold)' }}>Jesus</span>
+        </div>
       </div>
 
-      {/* Verse card */}
-      <div style={{ ...cardBase, borderColor: 'var(--border-gold)' }}>
-        <div style={goldAccent} />
-        <div className="verse-ref">{verse.verse_ref} · {verse.category}</div>
-        <div className="verse-text">"{verse.verse_text}"</div>
+      {/* Greeting */}
+      <div style={{ ...sectionStyle, background: 'var(--bg2)' }}>
+        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: 'linear-gradient(90deg, var(--gold), transparent)' }} />
+        <div style={{ fontFamily: 'Lora, serif', fontSize: '1rem', color: 'var(--white)', lineHeight: 1.5, marginBottom: 4 }}>
+          {greeting.msg}
+        </div>
+        <div style={{ fontSize: '13px', color: 'var(--silver2)', fontStyle: 'italic', fontWeight: 300 }}>
+          {greeting.sub}
+        </div>
+      </div>
 
-        {/* Invite button inside verse card */}
-        <div style={{ marginTop: '1rem', borderTop: '0.5px solid var(--border)', paddingTop: '0.875rem' }}>
+      {/* Tonight's Table */}
+      <div style={sectionStyle}>
+        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: 'linear-gradient(90deg, var(--gold), transparent)' }} />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
+          <span style={sectionTitleStyle}>Tonight's Table</span>
+          {familyMembers.length > 0 && (
+            <span style={{ fontSize: '11px', color: 'var(--silver)', fontWeight: 300 }}>Tap to remove</span>
+          )}
+        </div>
+        <p style={sectionSubStyle}>The table is set. He's already here.</p>
+
+        {familyMembers.length === 0 ? (
+          <p style={{ fontSize: '13px', color: 'var(--silver)', fontStyle: 'italic', marginBottom: '1rem', lineHeight: 1.6 }}>
+            Your table is empty. Go to Settings to create or join a table.
+          </p>
+        ) : (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: '1rem' }}>
+            {familyMembers.map(m => (
+              <button
+                key={m}
+                className={`member-chip ${activeMembers && activeMembers.includes(m) ? '' : 'off'}`}
+                onClick={() => toggleMember(m)}
+              >
+                <div className="member-dot"></div>
+                {m}
+              </button>
+            ))}
+          </div>
+        )}
+        {inviteCode && (
           <button
             className="btn"
-            style={{ width: '100%', background: 'var(--gold-soft)', borderColor: 'var(--border-gold)', color: 'var(--gold)', fontSize: '13px' }}
-            onClick={() => setShowInvite(!showInvite)}
+            style={{ width: '100%', marginBottom: 8, background: 'var(--gold-soft)', borderColor: 'var(--border-gold)', color: 'var(--gold)', fontSize: '13px' }}
+            onClick={() => {
+              const msg = encodeURIComponent(`Hey — join us at the dinner table tonight on Dinner with Jesus!\n\nDownload the app at flippingtables.ai and enter this code in Settings:\n\n${inviteCode}\n\nOne verse. Real conversation. 15 minutes. You won't regret it. 🙏`)
+              window.open(`sms:?body=${msg}`)
+            }}
           >
             🪑 Invite someone to the table tonight
           </button>
+        )}
+        <button className="btn btn-gold" onClick={onGoToTable}>
+          Let's Get Started 🙏
+        </button>
+      </div>
 
-          {showInvite && (
-            <div style={{ marginTop: '0.875rem' }}>
-              <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.75rem', fontWeight: 300, lineHeight: 1.6 }}>
-                The more people at the table, the better the conversation.
+      {/* Time Verse */}
+      <div style={sectionStyle}>
+        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: 'linear-gradient(90deg, var(--gold), transparent)' }} />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 36, height: 36, borderRadius: 8, background: 'var(--gold-soft)', border: '0.5px solid var(--border-gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem', flexShrink: 0 }}>
+              🕐
+            </div>
+            <div>
+              <span style={sectionTitleStyle}>Your verse for this moment</span>
+              <p style={{ ...sectionSubStyle, marginBottom: 0, fontSize: '12px' }}>God speaks through Scripture — even in the numbers</p>
+            </div>
+          </div>
+          <div style={{ fontFamily: 'Lora, serif', fontSize: '1.4rem', fontWeight: 600, color: 'var(--gold)', letterSpacing: '0.05em', flexShrink: 0, marginLeft: 8 }}>
+            {currentTime}
+          </div>
+        </div>
+
+        <div style={{ marginTop: '1rem' }}>
+          {!timeLoaded ? (
+            <button className="btn btn-gold" onClick={loadTimeVerses} disabled={timeLoading} style={{ width: '100%', fontSize: '14px', padding: '12px' }}>
+              {timeLoading ? 'Finding your verses...' : `Find verses for ${currentTime}`}
+            </button>
+          ) : timeVerses.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '0.75rem 0' }}>
+              <p style={{ fontSize: '13px', color: 'var(--silver)', lineHeight: 1.7, marginBottom: '0.75rem' }}>
+                No verses found for {currentTime}.<br />
+                <span style={{ color: 'var(--gold)', fontStyle: 'italic' }}>Try again at a different moment.</span>
               </p>
-              <button
-                className="btn btn-gold"
-                style={{ width: '100%', marginBottom: 8 }}
-                onClick={sendTonightInvite}
-              >
-                📱 Invite to tonight's table
-              </button>
-              <button
-                className="btn"
-                style={{ width: '100%', marginBottom: 8 }}
-                onClick={sendTableInvite}
-              >
-                🔑 Share your table code
-              </button>
-              <button
-                className="btn"
-                style={{ width: '100%' }}
-                onClick={shareVerse}
-              >
-                📤 Share tonight's verse
+              <button className="btn" onClick={() => { setTimeLoaded(false); setTimeVerses([]) }}>Try current time</button>
+            </div>
+          ) : (
+            <div>
+              <p style={{ fontSize: '11px', letterSpacing: '0.15em', textTransform: 'uppercase', color: 'var(--silver)', marginBottom: '0.75rem' }}>
+                {timeVerses.length} verse{timeVerses.length !== 1 ? 's' : ''} across Scripture for {currentTime}
+              </p>
+              {timeVerses.map(v => (
+                <div key={v.id} onClick={() => setSelectedTimeVerse(selectedTimeVerse?.id === v.id ? null : v)}
+                  style={{ padding: '0.875rem', background: selectedTimeVerse?.id === v.id ? 'var(--gold-soft)' : 'var(--bg3)', borderRadius: 10, border: `0.5px solid ${selectedTimeVerse?.id === v.id ? 'var(--border-gold)' : 'var(--border)'}`, marginBottom: 8, cursor: 'pointer', transition: 'all 0.15s' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 500, color: 'var(--gold)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '0.35rem' }}>
+                    {v.book} {v.chapter}:{v.verse}
+                  </div>
+                  <div style={{ fontFamily: 'Lora, serif', fontSize: '0.88rem', fontStyle: 'italic', color: 'var(--white)', lineHeight: 1.7 }}>
+                    "{v.text_kjv}"
+                  </div>
+                </div>
+              ))}
+              <button className="btn" style={{ marginTop: '0.25rem' }} onClick={() => { setTimeLoaded(false); setTimeVerses([]); setSelectedTimeVerse(null) }}>
+                ↺ Refresh for current time
               </button>
             </div>
           )}
         </div>
       </div>
 
-      {/* Context */}
-      {verse.context_text && (
-        <div style={{ ...cardBase, background: 'var(--bg3)' }}>
-          <div style={goldAccent} />
-          <span style={sectionTitle}>A little context</span>
-          <p style={{ fontSize: '14px', color: 'var(--cream)', lineHeight: 1.75, fontWeight: 300 }}>
-            {verse.context_text}
-          </p>
-        </div>
-      )}
-
-      {/* Questions */}
-      <div style={cardBase}>
-        <div style={goldAccent} />
-        <span style={sectionTitle}>For the table tonight</span>
-        <p style={{ fontFamily: 'Lora, serif', fontSize: '1rem', color: 'var(--white)', lineHeight: 1.65, fontStyle: 'italic', marginTop: '0.5rem' }}>
-          {getQuestion(1)}
-        </p>
-        {faithLevel >= 2 && verse.question_level_2 && (
-          <div style={{ marginTop: '1rem', borderTop: '0.5px solid var(--border)', paddingTop: '0.875rem' }}>
-            <p style={{ fontSize: '11px', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--silver2)', marginBottom: '0.5rem', fontWeight: 500 }}>Go deeper</p>
-            <p style={{ fontFamily: 'Lora, serif', fontSize: '0.9rem', color: 'var(--silver)', lineHeight: 1.6, fontStyle: 'italic' }}>{getQuestion(2)}</p>
-          </div>
-        )}
-        {faithLevel >= 3 && verse.question_level_3 && (
-          <div style={{ marginTop: '0.875rem', borderTop: '0.5px solid var(--border)', paddingTop: '0.875rem' }}>
-            <p style={{ fontSize: '11px', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--silver2)', marginBottom: '0.5rem', fontWeight: 500 }}>Push further</p>
-            <p style={{ fontFamily: 'Lora, serif', fontSize: '0.9rem', color: 'var(--silver)', lineHeight: 1.6, fontStyle: 'italic' }}>{getQuestion(3)}</p>
-          </div>
-        )}
-      </div>
-
-      {/* Prayer */}
-      <div style={cardBase}>
-        <div style={goldAccent} />
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-          <span style={{ ...sectionTitle, marginBottom: 0 }}>Prayer</span>
-          {nextMember && !allPrayed && (
-            <span style={{ fontSize: '11px', color: 'var(--gold)', background: 'var(--gold-soft)', padding: '2px 10px', borderRadius: 999 }}>
-              Next: {nextMember}
-            </span>
-          )}
-          {allPrayed && (
-            <span style={{ fontSize: '11px', color: 'var(--gold)', background: 'var(--gold-soft)', padding: '2px 10px', borderRadius: 999 }}>
-              Everyone prayed 🙏
-            </span>
-          )}
-        </div>
-
-        <p style={{ fontFamily: 'Lora, serif', fontSize: '0.95rem', color: 'var(--white)', marginBottom: '0.35rem' }}>
-          {currentMember ? `${currentMember}'s turn to pray` : 'Your turn to pray'}
-        </p>
-        <p style={{ fontSize: '12px', color: 'var(--silver)', lineHeight: 1.5, marginBottom: '0.875rem', fontStyle: 'italic', fontWeight: 300 }}>
-          {stats.conversations < 3
-            ? "Not sure what to say? Read the prayer below. Next time is yours."
-            : "Make it yours. Speak from the heart."}
-        </p>
-
-        <div style={{ background: 'var(--bg3)', borderRadius: 10, padding: '1rem', marginBottom: '0.875rem', border: '0.5px solid var(--border)' }}>
-          <p style={{ fontFamily: 'Lora, serif', fontSize: '14px', fontStyle: 'italic', color: 'var(--cream)', lineHeight: 1.8 }}>
-            {getPrayer()}
-          </p>
-          <p style={{ fontSize: '11px', color: 'var(--silver)', textAlign: 'right', marginTop: '0.5rem' }}>— Amen 🙏</p>
-        </div>
-
-        <div className="btn-row">
-          <button className="btn btn-green" onClick={nextPrayer} style={{ opacity: allPrayed ? 0.6 : 1 }}>
-            {allPrayed ? '🙏 All prayed' : '✓ We prayed together'}
-          </button>
-          <button className="btn" onClick={() => setShowPrayer(!showPrayer)}>📖 Full prayer</button>
+      {/* Feelings Grid */}
+      <div style={sectionStyle}>
+        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: 'linear-gradient(90deg, var(--gold), transparent)' }} />
+        <span style={sectionTitleStyle}>Need a moment with God right now?</span>
+        <p style={sectionSubStyle}>Pick what you're actually feeling. He already knows anyway.</p>
+        <div className="feelings-grid">
+          {FEELINGS.map(f => (
+            <button key={f.key} className="feeling-btn" onClick={() => selectFeeling(f.key)}>
+              <span className="feeling-emoji">{f.emoji}</span>
+              <span className="feeling-label">{f.label}</span>
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className="btn-row">
-        <button className="btn" onClick={newVerse}>↺ Different verse</button>
-        <button className="btn btn-gold" onClick={markDiscussed}>✓ We discussed this</button>
-      </div>
-
-      {/* Journal note */}
-      <div style={{ ...cardBase }}>
-        <div style={goldAccent} />
-        <span style={sectionTitle}>What happened at the table tonight</span>
-        <p style={{ fontSize: '13px', color: 'var(--silver)', fontStyle: 'italic', marginBottom: '0.75rem', marginTop: '0.25rem' }}>
-          Write it down. You'll want it later.
-        </p>
-        <textarea
-          value={noteText}
-          onChange={e => setNoteText(e.target.value)}
-          placeholder="Something someone said that you never want to forget..."
-          style={{ minHeight: 72, resize: 'none', marginBottom: 8 }}
-        />
-        <button className="btn btn-gold" onClick={saveNote}>
-          Save this moment
-        </button>
-      </div>
-
-      {/* Conversation counter */}
-      <div style={{ ...cardBase, textAlign: 'center', background: 'var(--bg3)', marginBottom: '1.5rem' }}>
-        <div style={goldAccent} />
+      {/* Conversations */}
+      <div style={{ ...sectionStyle, textAlign: 'center', background: 'var(--bg3)', position: 'relative', overflow: 'hidden' }}>
+        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: 'linear-gradient(90deg, var(--gold), transparent)' }} />
         <div style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>🍽️</div>
         <p style={{ fontFamily: 'Lora, serif', fontSize: '17px', color: 'var(--gold)', lineHeight: 1.7, fontStyle: 'italic', fontWeight: 600 }}>
           {conversationMsg}
         </p>
       </div>
 
-      {/* Full prayer overlay */}
-      {showPrayer && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(13,24,41,0.96)', zIndex: 150, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '2rem', textAlign: 'center', backdropFilter: 'blur(8px)' }}>
-          <div style={{ fontSize: '1.8rem', marginBottom: '1rem' }}>✝️</div>
-          <p style={{ fontFamily: 'Lora, serif', fontSize: '0.95rem', fontStyle: 'italic', color: 'var(--white)', lineHeight: 1.85, maxWidth: 380, marginBottom: '0.875rem' }}>
-            {getPrayer()}
-          </p>
-          <p style={{ fontSize: '13px', color: 'var(--silver)', marginBottom: '2rem' }}>— Amen 🙏</p>
-          <button className="btn btn-gold" style={{ width: 'auto', padding: '11px 2rem' }} onClick={() => setShowPrayer(false)}>Close</button>
+      {/* Bible Reader Link */}
+      <div style={{ textAlign: 'center', marginBottom: '0.75rem' }}>
+        <button
+          onClick={() => setShowBible(true)}
+          style={{ background: 'none', border: 'none', color: 'var(--gold)', fontSize: '14px', cursor: 'pointer', fontFamily: 'Lora, serif', fontStyle: 'italic', textDecoration: 'underline', textUnderlineOffset: '3px' }}
+        >
+          📖 Read the Bible
+        </button>
+      </div>
+
+      {/* OneTen credit */}
+      <p style={{ textAlign: 'center', fontSize: '11px', color: 'var(--silver)', opacity: 0.5, paddingBottom: '1.5rem' }}>
+        Built by <a href="https://onetengroup.ai" target="_blank" rel="noreferrer" style={{ color: 'var(--gold)', textDecoration: 'none' }}>OneTen Group</a> · 1:10
+      </p>
+
+      {/* Feeling Verse Popup */}
+      {showFeelingPopup && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(13,24,41,0.96)', zIndex: 150, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '1.5rem', backdropFilter: 'blur(8px)' }}
+          onClick={e => { if (e.target === e.currentTarget) setShowFeelingPopup(false) }}>
+          <div style={{ background: 'var(--bg2)', borderRadius: 16, border: '0.5px solid var(--border-gold)', padding: '1.5rem', width: '100%', maxWidth: '420px', maxHeight: '85vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.5rem' }}>
+              <button onClick={() => setShowFeelingPopup(false)} style={{ background: 'none', border: 'none', color: 'var(--silver)', fontSize: '20px', cursor: 'pointer', padding: '4px 8px' }}>✕</button>
+            </div>
+            {feelingLoading ? (
+              <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--silver)' }}>Finding your verse...</div>
+            ) : feelingVerse ? (
+              <>
+                <div style={{ fontSize: '11px', fontWeight: 500, color: 'var(--gold)', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
+                  {feeling?.emoji} {feelingVerse.verse_ref} — for when you feel {feeling?.label?.toLowerCase()}
+                </div>
+                <div style={{ fontFamily: 'Lora, serif', fontSize: '1.05rem', fontStyle: 'italic', color: 'var(--white)', lineHeight: 1.7, marginBottom: '0.875rem' }}>
+                  "{feelingVerse.verse_text}"
+                </div>
+                <p style={{ fontSize: '13px', color: 'var(--silver)', lineHeight: 1.7, marginBottom: '0.875rem', fontStyle: 'italic', fontWeight: 300 }}>
+                  {feelingVerse.context_text}
+                </p>
+                <div style={{ background: 'var(--bg3)', borderRadius: 10, padding: '1rem', marginBottom: '1rem', border: '0.5px solid var(--border)' }}>
+                  <p style={{ fontFamily: 'Lora, serif', fontSize: '13px', fontStyle: 'italic', color: 'var(--cream)', lineHeight: 1.8, margin: 0 }}>
+                    {feelingVerse.prayer_text}
+                  </p>
+                </div>
+                <div className="btn-row">
+                  <button className="btn" onClick={nextFeelingVerse}>↺ Another verse</button>
+                  <button className="btn btn-gold" onClick={() => setShowPrayOverlay(true)}>🙏 Pray this</button>
+                </div>
+              </>
+            ) : (
+              <div style={{ textAlign: 'center', padding: '1rem' }}>
+                <p style={{ color: 'var(--silver)', fontSize: '13px' }}>No verses found for this feeling.</p>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
-      <div className={`toast ${toast ? 'show' : ''}`}>{toast}</div>
+      {/* Prayer overlay */}
+      {showPrayOverlay && feelingVerse && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(13,24,41,0.98)', zIndex: 200, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '2rem', textAlign: 'center', backdropFilter: 'blur(8px)' }}>
+          <div style={{ fontSize: '1.8rem', marginBottom: '1rem' }}>✝️</div>
+          <p style={{ fontFamily: 'Lora, serif', fontSize: '0.95rem', fontStyle: 'italic', color: 'var(--white)', lineHeight: 1.85, maxWidth: 380, marginBottom: '0.875rem' }}>
+            {feelingVerse.prayer_text}
+          </p>
+          <p style={{ fontSize: '13px', color: 'var(--silver)', marginBottom: '2rem' }}>— Amen 🙏</p>
+          <button className="btn btn-gold" style={{ width: 'auto', padding: '11px 2rem' }} onClick={() => { setShowPrayOverlay(false); setShowFeelingPopup(false) }}>
+            Close
+          </button>
+        </div>
+      )}
     </div>
   )
 }
