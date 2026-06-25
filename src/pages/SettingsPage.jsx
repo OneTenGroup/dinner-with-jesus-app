@@ -622,14 +622,16 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
       </div>
 
       {/* Feedback */}
-      
-        href="mailto:steve@onetengroup.ai?subject=DWJ Feedback&body=Hi Steve,%0D%0A%0D%0AHere's my feedback on Dinner with Jesus:%0D%0A%0D%0A"
-        style={{ display: 'block', textDecoration: 'none', marginBottom: '0.75rem' }}
-      >
-        <button className="btn" style={{ color: 'var(--gold)', borderColor: 'var(--border-gold)', background: 'var(--gold-soft)', width: '100%' }}>
-          💬 Send Feedback
-        </button>
-      </a>
+      <div style={{ marginBottom: '0.75rem' }}>
+        <a
+          href="mailto:steve@onetengroup.ai?subject=DWJ Feedback&body=Hi Steve,%0D%0A%0D%0AHere's my feedback on Dinner with Jesus:%0D%0A%0D%0A"
+          style={{ display: 'block', textDecoration: 'none' }}
+        >
+          <button className="btn" style={{ color: 'var(--gold)', borderColor: 'var(--border-gold)', background: 'var(--gold-soft)', width: '100%' }}>
+            💬 Send Feedback
+          </button>
+        </a>
+      </div>
 
       {isAdmin && (
         <button
