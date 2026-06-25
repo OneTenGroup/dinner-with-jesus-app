@@ -239,7 +239,6 @@ function getDayKey() {
 }
 
 function getShuffledPool() {
-  // Alternate funny and inspirational
   const funny = [...FUNNY].sort(() => Math.random() - 0.5)
   const inspo = [...INSPIRATIONAL].sort(() => Math.random() - 0.5)
   const pool = []
@@ -257,7 +256,6 @@ function getTodaysMessages() {
     const stored = localStorage.getItem(dayKey)
     if (stored) return JSON.parse(stored)
 
-    // New day — pick 3 from pool + closer
     const poolKey = 'dwj_msg_pool'
     let pool = []
     try {
@@ -291,7 +289,6 @@ function getCurrentMessage() {
     if (done) return { text: null, done: true, isCloser: false }
 
     if (index >= 3) {
-      // Show the closer
       const updated = { ...data, index: index + 1, done: true }
       localStorage.setItem(dayKey, JSON.stringify(updated))
       return { text: DAILY_CLOSER, done: false, isCloser: true }
@@ -348,7 +345,6 @@ export default function KendylScene({ onEnter }) {
 
   function handleEnter() {
     if (msgData?.done) {
-      // Already seen all 4 today — go to app
       setVisible(false)
       setTimeout(() => onEnter(), 400)
       return
@@ -395,8 +391,37 @@ export default function KendylScene({ onEnter }) {
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px',
       }}>
 
+        {/* Option 1 tagline — always at the top */}
+        <div style={{
+          marginBottom: '4px',
+          padding: '10px 20px',
+          borderTop: '1px solid rgba(201,168,76,0.3)',
+          borderBottom: '1px solid rgba(201,168,76,0.3)',
+        }}>
+          <p style={{
+            fontFamily: 'Georgia, serif',
+            fontSize: 'clamp(13px, 3.2vw, 16px)',
+            color: '#F5E6C8',
+            lineHeight: 1.7,
+            margin: 0,
+            letterSpacing: '0.01em',
+          }}>
+            One verse. One conversation. One prayer.
+          </p>
+          <p style={{
+            fontFamily: 'Georgia, serif',
+            fontSize: 'clamp(14px, 3.5vw, 18px)',
+            color: '#C9A84C',
+            fontStyle: 'italic',
+            fontWeight: 'bold',
+            lineHeight: 1.5,
+            margin: '4px 0 0',
+          }}>
+            15 minutes that will change your family forever.
+          </p>
+        </div>
+
         {isDone ? (
-          /* Already seen all 4 today */
           <>
             <p style={{ fontFamily: 'Georgia, serif', fontSize: '11px', color: 'rgba(201,168,76,0.85)', letterSpacing: '0.08em', textTransform: 'uppercase', margin: 0 }}>
               Matthew 18:20
