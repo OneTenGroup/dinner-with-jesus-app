@@ -4,121 +4,189 @@ import { useAuth } from '../context/AuthContext'
 
 export function useFamily() {
   const { user } = useAuth()
-  const [family, setFamily] = useState(null)
-  const [members, setMembers] = useState([])
-  const [allFamilies, setAllFamilies] = useState([])
+  const [group, setGroup] = useState(null)       // current group object
+  const [members, setMembers] = useState([])     // display names of group members
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
     if (!user) {
+      setGroup(null)
       setMembers([])
-      setFamily(null)
-      setAllFamilies([])
       setLoading(false)
       return
     }
+    loadGroup()
 
-    loadFamily()
-
-    // Real-time — reload whenever anyone joins or leaves
+    // Real-time — reload when anyone joins or leaves
     const subscription = supabase
-      .channel(`family_members_changes_${user.id}`)
+      .channel(`group_members_${user.id}`)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
-        table: 'family_members'
+        table: 'profiles'
       }, () => {
-        loadFamily()
+        loadGroup()
       })
       .subscribe()
 
     return () => supabase.removeChannel(subscription)
   }, [user])
 
-  async function loadFamily() {
+  async function loadGroup() {
     if (!user?.id) return
     setLoading(true)
     try {
-      // Get all tables this user belongs to
-      const { data: memberData } = await supabase
-        .from('family_members')
-        .select('family_id, role')
-        .eq('user_id', user.id)
+      // Get this user's group_id from their profile
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('group_id')
+        .eq('id', user.id)
+        .single()
 
-      if (memberData && memberData.length > 0) {
-        const familyIds = memberData.map(m => m.family_id)
+      const groupId = profileData?.group_id
 
-        const { data: familyData } = await supabase
-          .from('families')
-          .select('id, name, invite_code')
-          .in('id', familyIds)
-
-        // Enrich with role
-        const enriched = (familyData || []).map(f => ({
-          ...f,
-          role: memberData.find(m => m.family_id === f.id)?.role || 'member'
-        }))
-
-        // Host tables first
-        enriched.sort((a, b) => {
-          if (a.role === 'host' && b.role !== 'host') return -1
-          if (a.role !== 'host' && b.role === 'host') return 1
-          return 0
-        })
-
-        setAllFamilies(enriched)
-
-        // Check if user has an active_family_id set
-        const { data: profileData } = await supabase
-          .from('profiles')
-          .select('active_family_id')
-          .eq('id', user.id)
-          .single()
-
-        // Active table = explicitly set active_family_id, else host table, else first table
-        let active = null
-        if (profileData?.active_family_id) {
-          active = enriched.find(f => f.id === profileData.active_family_id)
-        }
-        if (!active) {
-          active = enriched.find(f => f.role === 'host') || enriched[0]
-        }
-
-        if (active) {
-          const { data: allMembers } = await supabase
-            .from('family_members')
-            .select('display_name, prayer_order, role, user_id')
-            .eq('family_id', active.id)
-            .order('prayer_order')
-
-          setFamily({
-            id: active.id,
-            name: active.name,
-            invite_code: active.invite_code,
-            role: active.role
-          })
-          setMembers(allMembers?.map(m => m.display_name) || [])
-        }
-      } else {
-        setFamily(null)
-        setAllFamilies([])
+      if (!groupId) {
+        setGroup(null)
         setMembers([])
+        setLoading(false)
+        return
       }
+
+      // Load the group details
+      const { data: groupData } = await supabase
+        .from('groups')
+        .select('id, name, invite_code, owner_id')
+        .eq('id', groupId)
+        .single()
+
+      if (!groupData) {
+        setGroup(null)
+        setMembers([])
+        setLoading(false)
+        return
+      }
+
+      // Load all members of this group (everyone with this group_id)
+      const { data: memberProfiles } = await supabase
+        .from('profiles')
+        .select('name')
+        .eq('group_id', groupId)
+
+      setGroup({
+        id: groupData.id,
+        name: groupData.name,
+        invite_code: groupData.invite_code,
+        isOwner: groupData.owner_id === user.id
+      })
+      setMembers(memberProfiles?.map(p => p.name).filter(Boolean) || [])
+
     } catch (err) {
+      setGroup(null)
       setMembers([])
     }
     setLoading(false)
   }
 
-  async function switchTable(familyId) {
+  async function createGroup(name) {
+    if (!user?.id) return { error: 'Not logged in' }
     try {
-      await supabase
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+      let code = ''
+      for (let i = 0; i < 6; i++) code += chars.charAt(Math.floor(Math.random() * chars.length))
+
+      const { data: newGroup, error: groupError } = await supabase
+        .from('groups')
+        .insert({ name: name.trim(), invite_code: code, owner_id: user.id })
+        .select('id, name, invite_code')
+        .single()
+
+      if (groupError || !newGroup) return { error: 'Could not create group' }
+
+      const { error: profileError } = await supabase
         .from('profiles')
-        .update({ active_family_id: familyId })
+        .update({ group_id: newGroup.id })
         .eq('id', user.id)
-      await loadFamily()
-    } catch (err) {}
+
+      if (profileError) return { error: 'Group created but could not join it' }
+
+      await loadGroup()
+      return { success: true, group: newGroup }
+    } catch (err) {
+      return { error: 'Something went wrong' }
+    }
   }
 
-  return { family, members, allFamilies, loading, reload: loadFamily, switchTable }
+  async function joinGroup(inviteCode) {
+    if (!user?.id) return { error: 'Not logged in' }
+    try {
+      const { data: groupData, error } = await supabase
+        .from('groups')
+        .select('id, name')
+        .eq('invite_code', inviteCode.toUpperCase())
+        .single()
+
+      if (error || !groupData) return { error: 'Code not found. Check and try again.' }
+
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .update({ group_id: groupData.id })
+        .eq('id', user.id)
+
+      if (profileError) return { error: 'Could not join group' }
+
+      await loadGroup()
+      return { success: true, groupName: groupData.name }
+    } catch (err) {
+      return { error: 'Something went wrong' }
+    }
+  }
+
+  async function leaveGroup() {
+    if (!user?.id) return { error: 'Not logged in' }
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ group_id: null })
+        .eq('id', user.id)
+
+      if (error) return { error: 'Could not leave group' }
+
+      await loadGroup()
+      return { success: true }
+    } catch (err) {
+      return { error: 'Something went wrong' }
+    }
+  }
+
+  async function removeMember(memberId) {
+    if (!user?.id || !group?.isOwner) return { error: 'Not authorized' }
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ group_id: null })
+        .eq('id', memberId)
+
+      if (error) return { error: 'Could not remove member' }
+
+      await loadGroup()
+      return { success: true }
+    } catch (err) {
+      return { error: 'Something went wrong' }
+    }
+  }
+
+  return {
+    group,
+    members,
+    loading,
+    reload: loadGroup,
+    createGroup,
+    joinGroup,
+    leaveGroup,
+    removeMember,
+    // Legacy aliases so existing code doesn't break during transition
+    family: group,
+    allFamilies: group ? [group] : [],
+    switchTable: () => {}
+  }
 }
