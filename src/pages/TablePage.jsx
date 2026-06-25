@@ -81,6 +81,43 @@ export default function TablePage({ activeMembers, onDiscussed, stats }) {
   async function loadVerse(discussedIds) {
     setLoading(true)
     try {
+      // Get the family id for this user
+      const { data: memberData } = await supabase
+        .from('family_members')
+        .select('family_id, role')
+        .eq('user_id', user.id)
+        .order('role', { ascending: true }) // owner first
+        .limit(1)
+        .single()
+
+      const familyId = memberData?.family_id
+
+      // Check sticky note — has this family already picked a verse today?
+      if (familyId) {
+        const today = new Date().toISOString().split('T')[0]
+        const { data: stickyNote } = await supabase
+          .from('family_verse')
+          .select('dinner_verse_id')
+          .eq('family_id', familyId)
+          .eq('verse_date', today)
+          .single()
+
+        if (stickyNote?.dinner_verse_id) {
+          // Sticky note exists — load that exact verse
+          const { data: verseData } = await supabase
+            .from('dinner_verses')
+            .select('*')
+            .eq('id', stickyNote.dinner_verse_id)
+            .single()
+          if (verseData) {
+            setVerse(verseData)
+            setLoading(false)
+            return
+          }
+        }
+      }
+
+      // No sticky note yet — pick a new verse and write the note
       const { data, error } = await supabase
         .from('dinner_verses')
         .select('*')
@@ -97,7 +134,20 @@ export default function TablePage({ activeMembers, onDiscussed, stats }) {
       const ids = discussedIds !== undefined ? discussedIds : discussed
       const available = ids.length > 0 ? data.filter(v => !ids.includes(v.id)) : data
       const pool = available.length > 0 ? available : data
-      setVerse(pool[Math.floor(Math.random() * pool.length)])
+      const picked = pool[Math.floor(Math.random() * pool.length)]
+      setVerse(picked)
+
+      // Write the sticky note so everyone else in the family sees the same verse
+      if (familyId && picked) {
+        const today = new Date().toISOString().split('T')[0]
+        await supabase
+          .from('family_verse')
+          .upsert({
+            family_id: familyId,
+            dinner_verse_id: picked.id,
+            verse_date: today
+          }, { onConflict: 'family_id,verse_date' })
+      }
     } catch (err) {
       setError('Could not load verse. Please try again.')
     }
