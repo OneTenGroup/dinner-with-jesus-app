@@ -9,7 +9,7 @@ import TablePage from './pages/TablePage'
 import StoryPage from './pages/StoryPage'
 import JournalPage from './pages/JournalPage'
 import SettingsPage from './pages/SettingsPage'
-import KendylScene from './components/KendylScene'
+import KendylScene, { hasSeenTodaysScene } from './components/KendylScene'
 import AdminPage from './pages/AdminPage'
 
 const ADMIN_USER_ID = '28356e7e-067c-49a8-81a2-095576c432a7'
@@ -107,7 +107,7 @@ export default function App() {
   }, [members])
 
   useEffect(() => {
-    if (user && !isPasswordReset) setShowKendyl(true)
+    if (user && !isPasswordReset && !hasSeenTodaysScene()) setShowKendyl(true)
   }, [user])
 
   // Show password reset screen if recovery token detected
