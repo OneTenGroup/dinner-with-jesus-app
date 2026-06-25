@@ -229,13 +229,23 @@ const INSPIRATIONAL = [
   "Come back tomorrow. I've got something to say to you.",
 ]
 
-const DAILY_CLOSER = "Life is short. Order dessert."
-
-const MESSAGES_PER_DAY = 4
-
 function getDayKey() {
   const now = new Date()
-  return `dwj_day_${now.getFullYear()}_${now.getMonth()}_${now.getDate()}`
+  return `dwj_seen_${now.getFullYear()}_${now.getMonth()}_${now.getDate()}`
+}
+
+// Returns true if user has already seen the scene today
+export function hasSeenTodaysScene() {
+  try {
+    return localStorage.getItem(getDayKey()) === 'true'
+  } catch (e) { return false }
+}
+
+// Mark today's scene as seen
+function markSeenToday() {
+  try {
+    localStorage.setItem(getDayKey(), 'true')
+  } catch (e) {}
 }
 
 function getShuffledPool() {
@@ -250,12 +260,9 @@ function getShuffledPool() {
   return pool
 }
 
-function getTodaysMessages() {
+// Pick one message for today — same one all day, new one tomorrow
+function getTodaysMessage() {
   try {
-    const dayKey = getDayKey()
-    const stored = localStorage.getItem(dayKey)
-    if (stored) return JSON.parse(stored)
-
     const poolKey = 'dwj_msg_pool'
     let pool = []
     try {
@@ -263,50 +270,17 @@ function getTodaysMessages() {
       pool = storedPool ? JSON.parse(storedPool) : []
     } catch (e) { pool = [] }
 
-    if (pool.length < 3) {
+    if (pool.length < 1) {
       pool = getShuffledPool()
-      localStorage.setItem(poolKey, JSON.stringify(pool))
     }
 
-    const todaysMsgs = pool.slice(0, 3)
-    const remaining = pool.slice(3)
+    const msg = pool[0]
+    const remaining = pool.slice(1)
     localStorage.setItem(poolKey, JSON.stringify(remaining))
-
-    const result = { messages: todaysMsgs, index: 0, done: false }
-    localStorage.setItem(dayKey, JSON.stringify(result))
-    return result
+    return msg
   } catch (e) {
-    return { messages: [FUNNY[0], INSPIRATIONAL[0], FUNNY[1]], index: 0, done: false }
+    return FUNNY[0]
   }
-}
-
-function getCurrentMessage() {
-  try {
-    const dayKey = getDayKey()
-    const data = getTodaysMessages()
-    const { messages, index, done } = data
-
-    if (done) return { text: null, done: true, isCloser: false }
-
-    if (index >= 3) {
-      const updated = { ...data, index: index + 1, done: true }
-      localStorage.setItem(dayKey, JSON.stringify(updated))
-      return { text: DAILY_CLOSER, done: false, isCloser: true }
-    }
-
-    return { text: messages[index], done: false, isCloser: false }
-  } catch (e) {
-    return { text: FUNNY[0], done: false, isCloser: false }
-  }
-}
-
-function advanceMessage() {
-  try {
-    const dayKey = getDayKey()
-    const data = getTodaysMessages()
-    const updated = { ...data, index: data.index + 1 }
-    localStorage.setItem(dayKey, JSON.stringify(updated))
-  } catch (e) {}
 }
 
 export default function KendylScene({ onEnter }) {
@@ -317,16 +291,11 @@ export default function KendylScene({ onEnter }) {
   const [msgData, setMsgData] = useState(null)
 
   useEffect(() => {
-    const data = getCurrentMessage()
-    setMsgData(data)
+    const msg = getTodaysMessage()
+    setMsgData({ text: msg })
     const fadeTimer = setTimeout(() => setVisible(true), 100)
-    if (!data.done && data.text) {
-      const typeTimer = setTimeout(() => typeMessage(data.text), 1200)
-      return () => { clearTimeout(fadeTimer); clearTimeout(typeTimer) }
-    } else {
-      setTypingDone(true)
-    }
-    return () => clearTimeout(fadeTimer)
+    const typeTimer = setTimeout(() => typeMessage(msg), 1200)
+    return () => { clearTimeout(fadeTimer); clearTimeout(typeTimer) }
   }, [])
 
   function typeMessage(text) {
@@ -344,18 +313,10 @@ export default function KendylScene({ onEnter }) {
   }
 
   function handleEnter() {
-    if (msgData?.done) {
-      setVisible(false)
-      setTimeout(() => onEnter(), 400)
-      return
-    }
-    advanceMessage()
+    markSeenToday()
     setVisible(false)
     setTimeout(() => onEnter(), 400)
   }
-
-  const isDone = msgData?.done
-  const isCloser = msgData?.isCloser
 
   return (
     <div style={{
@@ -421,26 +382,7 @@ export default function KendylScene({ onEnter }) {
           </p>
         </div>
 
-        {isDone ? (
-          <>
-            <p style={{ fontFamily: 'Georgia, serif', fontSize: '11px', color: 'rgba(201,168,76,0.85)', letterSpacing: '0.08em', textTransform: 'uppercase', margin: 0 }}>
-              Matthew 18:20
-            </p>
-            <p style={{ fontFamily: 'Georgia, serif', fontSize: '13px', color: 'rgba(201,168,76,0.85)', fontStyle: 'italic', lineHeight: 1.6, margin: 0, maxWidth: '320px' }}>
-              "For where two or three gather in my name, there am I with them."
-            </p>
-            <div style={{ fontFamily: 'Georgia, serif', fontSize: 'clamp(18px, 4.5vw, 24px)', color: '#F5E6C8', fontStyle: 'italic', lineHeight: 1.55, minHeight: '80px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              "Dinner's getting cold. Come back tomorrow — He's got more to say." 🍽️
-            </div>
-            <button onClick={handleEnter} style={btnStyle(true)}
-              onMouseEnter={e => { e.target.style.background = '#C9A84C'; e.target.style.color = '#0D1829' }}
-              onMouseLeave={e => { e.target.style.background = 'transparent'; e.target.style.color = '#C9A84C' }}>
-              Come to the Table
-            </button>
-          </>
-        ) : (
-          <>
-            <p style={{ fontFamily: 'Georgia, serif', fontSize: '11px', color: 'rgba(201,168,76,0.85)', letterSpacing: '0.08em', textTransform: 'uppercase', margin: 0 }}>
+        <p style={{ fontFamily: 'Georgia, serif', fontSize: '11px', color: 'rgba(201,168,76,0.85)', letterSpacing: '0.08em', textTransform: 'uppercase', margin: 0 }}>
               Matthew 18:20
             </p>
             <p style={{ fontFamily: 'Georgia, serif', fontSize: '13px', color: 'rgba(201,168,76,0.85)', fontStyle: 'italic', lineHeight: 1.6, margin: 0, maxWidth: '320px' }}>
@@ -449,13 +391,6 @@ export default function KendylScene({ onEnter }) {
             <div style={{ fontFamily: 'Georgia, serif', fontSize: 'clamp(18px, 4.5vw, 24px)', color: '#F5E6C8', fontStyle: 'italic', lineHeight: 1.55, minHeight: '80px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               {typed ? <span>"{typed}{showCursor && <span style={cursorStyle}/>}"</span> : <span style={cursorStyle}/>}
             </div>
-
-            {isCloser && (
-              <p style={{ fontFamily: 'Georgia, serif', fontSize: '12px', color: 'rgba(255,255,255,0.5)', fontStyle: 'italic', margin: 0 }}>
-                Come back tomorrow for more. 🙏
-              </p>
-            )}
-
             <button
               onClick={handleEnter}
               style={btnStyle(typingDone)}
@@ -464,8 +399,6 @@ export default function KendylScene({ onEnter }) {
             >
               Come to the Table
             </button>
-          </>
-        )}
 
         <p style={{ fontFamily: 'Georgia, serif', fontSize: '11px', color: 'rgba(255,255,255,0.3)', letterSpacing: '0.1em', margin: 0, marginTop: '4px' }}>
           DINNER WITH JESUS · 1:10
