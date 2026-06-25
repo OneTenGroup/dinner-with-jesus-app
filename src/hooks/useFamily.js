@@ -20,22 +20,27 @@ export function useFamily() {
   async function loadFamily() {
     setLoading(true)
     try {
+      // Get ALL families this user belongs to
       const { data: memberData } = await supabase
         .from('family_members')
         .select('family_id')
         .eq('user_id', user.id)
-        .single()
 
-      if (memberData?.family_id) {
+      if (memberData && memberData.length > 0) {
+        // Use the first family as primary
+        const primaryFamilyId = memberData[0].family_id
+
+        // Get ALL members from the primary family
         const { data: allMembers } = await supabase
           .from('family_members')
           .select('display_name, prayer_order')
-          .eq('family_id', memberData.family_id)
+          .eq('family_id', primaryFamilyId)
           .order('prayer_order')
 
-        setFamily({ id: memberData.family_id })
+        setFamily({ id: primaryFamilyId })
         setMembers(allMembers?.map(m => m.display_name) || [])
       } else {
+        setFamily(null)
         setMembers([])
       }
     } catch (err) {
