@@ -356,7 +356,7 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
         {circleMode === 'none' && (
           <>
             <p style={{ fontSize: '13px', color: 'var(--silver)', marginBottom: '1rem', lineHeight: 1.6 }}>
-              {hasFamilies ? 'Start another table or join one you've been invited to.' : 'Start your own table or join one you've been invited to.'}
+              {hasFamilies ? "Start another table or join one you've been invited to." : "Start your own table or join one you've been invited to."}
             </p>
             <div className="btn-row">
               <button className="btn btn-gold" onClick={() => setCircleMode('create')}>
