@@ -22,7 +22,7 @@ export function useFamily() {
 
     // Real-time — reload whenever anyone joins or leaves
     const subscription = supabase
-      .channel('family_members_changes')
+      .channel(`family_members_changes_${user.id}`)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
