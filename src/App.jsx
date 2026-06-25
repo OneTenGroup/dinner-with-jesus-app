@@ -42,7 +42,6 @@ function ResetPasswordScreen({ onDone }) {
         <div className="cross" style={{ width: 24, height: 24 }}></div>
         <h1 className="auth-title">Dinner with <span>Jesus</span></h1>
       </div>
-
       {success ? (
         <>
           <div style={{ fontSize: '2.5rem', marginBottom: '1rem' }}>✅</div>
@@ -53,22 +52,8 @@ function ResetPasswordScreen({ onDone }) {
         <>
           <p className="auth-sub">Set your new password.</p>
           <form className="auth-form" onSubmit={handleReset}>
-            <input
-              type="password"
-              placeholder="New password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              required
-              minLength={6}
-            />
-            <input
-              type="password"
-              placeholder="Confirm new password"
-              value={confirm}
-              onChange={e => setConfirm(e.target.value)}
-              required
-              minLength={6}
-            />
+            <input type="password" placeholder="New password" value={password} onChange={e => setPassword(e.target.value)} required minLength={6} />
+            <input type="password" placeholder="Confirm new password" value={confirm} onChange={e => setConfirm(e.target.value)} required minLength={6} />
             {error && <div className="auth-error">{error}</div>}
             <button type="submit" className="btn btn-gold" disabled={loading} style={{ marginTop: '4px' }}>
               {loading ? '...' : 'Update password'}
@@ -82,9 +67,9 @@ function ResetPasswordScreen({ onDone }) {
 
 export default function App() {
   const { user, profile, loading } = useAuth()
-  const { members, loading: familyLoading } = useFamily()
+  const { members, group, loading: familyLoading } = useFamily()
   const [activeTab, setActiveTab] = useState('home')
-  const [activeMembers, setActiveMembers] = useState([])
+  const [atTable, setAtTable] = useState(false)
   const [stats, setStats] = useState({ conversations: 0 })
   const [onboardingDone, setOnboardingDone] = useState(false)
   const [showKendyl, setShowKendyl] = useState(false)
@@ -93,7 +78,6 @@ export default function App() {
   const isAdmin = user?.id === ADMIN_USER_ID
 
   useEffect(() => {
-    // Detect password reset token in URL
     const hash = window.location.hash
     if (hash && hash.includes('type=recovery')) {
       setIsPasswordReset(true)
@@ -101,16 +85,9 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (members.length > 0) {
-      setActiveMembers(members)
-    }
-  }, [members])
-
-  useEffect(() => {
     if (user && !isPasswordReset && !hasSeenTodaysScene()) setShowKendyl(true)
   }, [user])
 
-  // Show password reset screen if recovery token detected
   if (isPasswordReset) {
     return (
       <ResetPasswordScreen onDone={() => {
@@ -140,8 +117,19 @@ export default function App() {
     return <KendylScene onEnter={() => setShowKendyl(false)} />
   }
 
-  function goToTable() { setActiveTab('table') }
-  function onDiscussed() { setStats(s => ({ ...s, conversations: s.conversations + 1 })) }
+  function onDiscussed() {
+    setStats(s => ({ ...s, conversations: s.conversations + 1 }))
+  }
+
+  function goToTable() {
+    setActiveTab('table')
+    setAtTable(true)
+  }
+
+  function handleLeaveTable() {
+    setAtTable(false)
+    setActiveTab('home')
+  }
 
   const tabs = [
     { id: 'home', icon: '🏠', label: 'Home' },
@@ -154,11 +142,12 @@ export default function App() {
   return (
     <div className="app-shell">
       {showAdmin && <AdminPage onClose={() => setShowAdmin(false)} />}
+
       {activeTab === 'home' && (
         <HomePage
           onGoToTable={goToTable}
-          activeMembers={activeMembers}
-          setActiveMembers={setActiveMembers}
+          activeMembers={members}
+          setActiveMembers={() => {}}
           allMembers={members}
           stats={stats}
         />
@@ -166,25 +155,35 @@ export default function App() {
       {activeTab === 'story' && <StoryPage />}
       {activeTab === 'table' && (
         <TablePage
-          activeMembers={activeMembers.length > 0 ? activeMembers : members}
-          onDiscussed={onDiscussed}
-          stats={stats}
+          onLeaveTable={handleLeaveTable}
         />
       )}
       {activeTab === 'journal' && <JournalPage />}
-      {activeTab === 'settings' && <SettingsPage members={members || []} isAdmin={isAdmin} onOpenAdmin={() => setShowAdmin(true)} onJoined={() => { setActiveTab('table') }} />}
-      <nav className="bottom-nav">
-        {tabs.map(t => (
-          <button
-            key={t.id}
-            className={`nav-item ${activeTab === t.id ? 'active' : ''}`}
-            onClick={() => setActiveTab(t.id)}
-          >
-            <span className="nav-icon">{t.icon}</span>
-            <span className="nav-label">{t.label}</span>
-          </button>
-        ))}
-      </nav>
+      {activeTab === 'settings' && (
+        <SettingsPage
+          isAdmin={isAdmin}
+          onOpenAdmin={() => setShowAdmin(true)}
+        />
+      )}
+
+      {/* Hide nav while at the table */}
+      {!atTable && (
+        <nav className="bottom-nav">
+          {tabs.map(t => (
+            <button
+              key={t.id}
+              className={`nav-item ${activeTab === t.id ? 'active' : ''}`}
+              onClick={() => {
+                setActiveTab(t.id)
+                if (t.id === 'table') setAtTable(true)
+              }}
+            >
+              <span className="nav-icon">{t.icon}</span>
+              <span className="nav-label">{t.label}</span>
+            </button>
+          ))}
+        </nav>
+      )}
     </div>
   )
 }
