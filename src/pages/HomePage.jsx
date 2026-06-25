@@ -68,7 +68,7 @@ const sectionSubStyle = {
 }
 
 export default function HomePage({ onGoToTable, activeMembers, setActiveMembers, allMembers, stats }) {
-  const { profile } = useAuth()
+  const { profile, user } = useAuth()
   const [greeting, setGreeting] = useState({ msg: 'Welcome.', sub: '' })
   const [currentTime, setCurrentTime] = useState('')
   const [timeVerses, setTimeVerses] = useState([])
@@ -77,6 +77,8 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
   const [selectedTimeVerse, setSelectedTimeVerse] = useState(null)
   const [announcement, setAnnouncement] = useState(null)
   const [bannerDismissed, setBannerDismissed] = useState(false)
+  const [inviteCode, setInviteCode] = useState('')
+  const [familyName, setFamilyName] = useState('')
 
   const [selectedFeeling, setSelectedFeeling] = useState(null)
   const [feelingVerse, setFeelingVerse] = useState(null)
@@ -95,8 +97,32 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
     updateTime()
     const timer = setInterval(updateTime, 30000)
     loadAnnouncement()
+    loadInviteCode()
     return () => clearInterval(timer)
   }, [])
+
+  async function loadInviteCode() {
+    if (!user?.id) return
+    try {
+      const { data: memberData } = await supabase
+        .from('family_members')
+        .select('family_id')
+        .eq('user_id', user.id)
+        .limit(1)
+        .single()
+      if (memberData?.family_id) {
+        const { data: familyData } = await supabase
+          .from('families')
+          .select('name, invite_code')
+          .eq('id', memberData.family_id)
+          .single()
+        if (familyData) {
+          setInviteCode(familyData.invite_code || '')
+          setFamilyName(familyData.name || '')
+        }
+      }
+    } catch (err) {}
+  }
 
   async function loadAnnouncement() {
     try {
@@ -283,6 +309,18 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
               </button>
             ))}
           </div>
+        )}
+        {inviteCode && (
+          <button
+            className="btn"
+            style={{ width: '100%', marginBottom: 8, background: 'var(--gold-soft)', borderColor: 'var(--border-gold)', color: 'var(--gold)', fontSize: '13px' }}
+            onClick={() => {
+              const msg = encodeURIComponent(`Hey — join us at the dinner table tonight on Dinner with Jesus!\n\nDownload the app at flippingtables.ai and enter this code in Settings:\n\n${inviteCode}\n\nOne verse. Real conversation. 15 minutes. You won't regret it. 🙏`)
+              window.open(`sms:?body=${msg}`)
+            }}
+          >
+            🪑 Invite someone to the table tonight
+          </button>
         )}
         <button className="btn btn-gold" onClick={onGoToTable}>
           Let's Get Started 🙏
