@@ -33,6 +33,12 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(null) // family_id to leave
   const [leaving, setLeaving] = useState(false)
   const [regenerating, setRegenerating] = useState(false)
+  const [accountMode, setAccountMode] = useState('none') // none | name | email | password
+  const [newName, setNewName] = useState('')
+  const [newEmail, setNewEmail] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [accountSaving, setAccountSaving] = useState(false)
 
   useEffect(() => {
     loadFamilyInfo()
@@ -249,6 +255,55 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
     showToast('Faith journey level updated ✓')
   }
 
+  async function handleUpdateName() {
+    if (!newName.trim()) { showToast('Enter a name.'); return }
+    setAccountSaving(true)
+    try {
+      await updateProfile({ name: newName.trim() })
+      await supabase.from('profiles').update({ name: newName.trim() }).eq('id', user.id)
+      showToast('Name updated ✓')
+      setAccountMode('none')
+      setNewName('')
+    } catch (err) {
+      showToast('Could not update name.')
+    }
+    setAccountSaving(false)
+  }
+
+  async function handleUpdateEmail() {
+    if (!newEmail.trim()) { showToast('Enter an email.'); return }
+    setAccountSaving(true)
+    try {
+      const { error } = await supabase.auth.updateUser({ email: newEmail.trim() })
+      if (error) throw error
+      await supabase.from('profiles').update({ email: newEmail.trim() }).eq('id', user.id)
+      showToast('Check your new email to confirm the change ✓')
+      setAccountMode('none')
+      setNewEmail('')
+    } catch (err) {
+      showToast(err.message || 'Could not update email.')
+    }
+    setAccountSaving(false)
+  }
+
+  async function handleUpdatePassword() {
+    if (!newPassword) { showToast('Enter a password.'); return }
+    if (newPassword.length < 6) { showToast('Password must be at least 6 characters.'); return }
+    if (newPassword !== confirmPassword) { showToast('Passwords do not match.'); return }
+    setAccountSaving(true)
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword })
+      if (error) throw error
+      showToast('Password updated ✓')
+      setAccountMode('none')
+      setNewPassword('')
+      setConfirmPassword('')
+    } catch (err) {
+      showToast(err.message || 'Could not update password.')
+    }
+    setAccountSaving(false)
+  }
+
   function showToast(msg) {
     setToast(msg)
     setTimeout(() => setToast(''), 2800)
@@ -268,15 +323,110 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
       {/* Account */}
       <span className="section-label">Your Account</span>
       <div className="card" style={{ marginBottom: '1.5rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        {/* Profile header */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: accountMode === 'none' ? 0 : '1rem' }}>
           <div style={{ width: 42, height: 42, borderRadius: '50%', background: 'var(--bg4)', border: '0.5px solid var(--border-gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', color: 'var(--gold)', fontWeight: 500, flexShrink: 0 }}>
             {profile?.name?.charAt(0) || '?'}
           </div>
-          <div>
+          <div style={{ flex: 1 }}>
             <div style={{ fontSize: '15px', color: 'var(--white)' }}>{profile?.name}</div>
-            <div style={{ fontSize: '12px', color: 'var(--silver)', marginTop: 2 }}>{profile?.email || ''}</div>
+            <div style={{ fontSize: '12px', color: 'var(--silver)', marginTop: 2 }}>{profile?.email || user?.email || ''}</div>
           </div>
+          <button
+            onClick={() => setAccountMode(accountMode === 'none' ? 'menu' : 'none')}
+            style={{ background: 'none', border: '0.5px solid var(--border)', borderRadius: 8, padding: '6px 12px', color: 'var(--silver)', fontSize: '12px', cursor: 'pointer' }}
+          >
+            {accountMode === 'none' ? 'Edit' : 'Cancel'}
+          </button>
         </div>
+
+        {/* Edit menu */}
+        {accountMode === 'menu' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: '0.75rem' }}>
+            <button className="btn" style={{ width: '100%', textAlign: 'left', fontSize: '13px' }} onClick={() => { setNewName(profile?.name || ''); setAccountMode('name') }}>
+              ✏️ Change display name
+            </button>
+            <button className="btn" style={{ width: '100%', textAlign: 'left', fontSize: '13px' }} onClick={() => { setNewEmail(profile?.email || ''); setAccountMode('email') }}>
+              📧 Change email
+            </button>
+            <button className="btn" style={{ width: '100%', textAlign: 'left', fontSize: '13px' }} onClick={() => setAccountMode('password')}>
+              🔒 Change password
+            </button>
+          </div>
+        )}
+
+        {/* Change name form */}
+        {accountMode === 'name' && (
+          <div style={{ marginTop: '0.75rem' }}>
+            <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.5rem' }}>Display name</p>
+            <input
+              type="text"
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
+              placeholder="Your name"
+              maxLength={40}
+              style={{ marginBottom: 8 }}
+            />
+            <div className="btn-row">
+              <button className="btn" onClick={() => setAccountMode('menu')}>Cancel</button>
+              <button className="btn btn-gold" onClick={handleUpdateName} disabled={accountSaving}>
+                {accountSaving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Change email form */}
+        {accountMode === 'email' && (
+          <div style={{ marginTop: '0.75rem' }}>
+            <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.5rem' }}>New email address</p>
+            <input
+              type="email"
+              value={newEmail}
+              onChange={e => setNewEmail(e.target.value)}
+              placeholder="new@email.com"
+              style={{ marginBottom: 8 }}
+            />
+            <p style={{ fontSize: '11px', color: 'var(--silver)', opacity: 0.6, marginBottom: 8, fontStyle: 'italic' }}>
+              You'll need to confirm the change from your new email address.
+            </p>
+            <div className="btn-row">
+              <button className="btn" onClick={() => setAccountMode('menu')}>Cancel</button>
+              <button className="btn btn-gold" onClick={handleUpdateEmail} disabled={accountSaving}>
+                {accountSaving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Change password form */}
+        {accountMode === 'password' && (
+          <div style={{ marginTop: '0.75rem' }}>
+            <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.5rem' }}>New password</p>
+            <input
+              type="password"
+              value={newPassword}
+              onChange={e => setNewPassword(e.target.value)}
+              placeholder="New password (min 6 characters)"
+              minLength={6}
+              style={{ marginBottom: 8 }}
+            />
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={e => setConfirmPassword(e.target.value)}
+              placeholder="Confirm new password"
+              minLength={6}
+              style={{ marginBottom: 8 }}
+            />
+            <div className="btn-row">
+              <button className="btn" onClick={() => setAccountMode('menu')}>Cancel</button>
+              <button className="btn btn-gold" onClick={handleUpdatePassword} disabled={accountSaving}>
+                {accountSaving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Circles */}
