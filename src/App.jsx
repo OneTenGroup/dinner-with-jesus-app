@@ -172,7 +172,7 @@ export default function App() {
         />
       )}
       {activeTab === 'journal' && <JournalPage />}
-      {activeTab === 'settings' && <SettingsPage members={members || []} isAdmin={isAdmin} onOpenAdmin={() => setShowAdmin(true)} />}
+      {activeTab === 'settings' && <SettingsPage members={members || []} isAdmin={isAdmin} onOpenAdmin={() => setShowAdmin(true)} onJoined={() => { setActiveTab('table') }} />}
       <nav className="bottom-nav">
         {tabs.map(t => (
           <button
