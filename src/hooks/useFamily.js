@@ -4,8 +4,8 @@ import { useAuth } from '../context/AuthContext'
 
 export function useFamily() {
   const { user } = useAuth()
-  const [group, setGroup] = useState(null)       // current group object
-  const [members, setMembers] = useState([])     // display names of group members
+  const [group, setGroup] = useState(null)
+  const [members, setMembers] = useState([])
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
@@ -16,27 +16,12 @@ export function useFamily() {
       return
     }
     loadGroup()
-
-    // Real-time — reload when anyone joins or leaves
-    const subscription = supabase
-      .channel(`group_members_${user.id}`)
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'profiles'
-      }, () => {
-        loadGroup()
-      })
-      .subscribe()
-
-    return () => supabase.removeChannel(subscription)
   }, [user])
 
   async function loadGroup() {
     if (!user?.id) return
     setLoading(true)
     try {
-      // Get this user's group_id from their profile
       const { data: profileData } = await supabase
         .from('profiles')
         .select('group_id')
@@ -52,7 +37,6 @@ export function useFamily() {
         return
       }
 
-      // Load the group details
       const { data: groupData } = await supabase
         .from('groups')
         .select('id, name, invite_code, owner_id')
@@ -66,7 +50,6 @@ export function useFamily() {
         return
       }
 
-      // Load all members of this group (everyone with this group_id)
       const { data: memberProfiles } = await supabase
         .from('profiles')
         .select('name')
@@ -184,7 +167,6 @@ export function useFamily() {
     joinGroup,
     leaveGroup,
     removeMember,
-    // Legacy aliases so existing code doesn't break during transition
     family: group,
     allFamilies: group ? [group] : [],
     switchTable: () => {}
