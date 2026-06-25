@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useFamily } from '../hooks/useFamily'
 import { supabase } from '../lib/supabase'
@@ -29,47 +29,15 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
   const [creating, setCreating] = useState(false)
   const [newFamilyName, setNewFamilyName] = useState('')
   const [circleMode, setCircleMode] = useState('none')
-  const [showLeaveConfirm, setShowLeaveConfirm] = useState(null) // family_id to leave
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(null)
   const [leaving, setLeaving] = useState(false)
   const [regenerating, setRegenerating] = useState(false)
-  const [accountMode, setAccountMode] = useState('none') // none | name | email | password
+  const [accountMode, setAccountMode] = useState('none')
   const [newName, setNewName] = useState('')
   const [newEmail, setNewEmail] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [accountSaving, setAccountSaving] = useState(false)
-
-  useEffect(() => {
-    loadFamilyInfo()
-  }, [])
-
-  async function loadFamilyInfo() {
-    if (!user?.id) return
-    try {
-      const { data: memberData } = await supabase
-        .from('family_members')
-        .select('family_id, role')
-        .eq('user_id', user.id)
-
-      if (memberData && memberData.length > 0) {
-        const familyIds = memberData.map(m => m.family_id)
-        const { data: familyData } = await supabase
-          .from('families')
-          .select('id, name, invite_code')
-          .in('id', familyIds)
-
-        const enriched = familyData?.map(f => ({
-          ...f,
-          role: memberData.find(m => m.family_id === f.id)?.role || 'member'
-        })) || []
-        setFamilies(enriched)
-      } else {
-        setFamilies([])
-      }
-    } catch (err) {
-      // No family yet
-    }
-  }
 
   async function handleCreateFamily() {
     if (!newFamilyName.trim()) {
@@ -171,7 +139,6 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
 
       setJoinCode('')
       setCircleMode('none')
-      // Set this as the active table so they see the right verse
       await supabase.from('profiles').update({ active_family_id: familyData.id }).eq('id', user.id)
       await reload()
       showToast(`Welcome to ${familyData.name}! 🙏`)
@@ -219,7 +186,7 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
       if (error) {
         showToast('Could not regenerate code. Try again.')
       } else {
-        await loadFamilyInfo()
+        await reload()
         showToast('New invite code generated! ✓')
       }
     } catch (err) {
@@ -257,18 +224,15 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
     if (!newName.trim()) { showToast('Enter a name.'); return }
     setAccountSaving(true)
     try {
-      // Update profiles table directly
       const { error } = await supabase
         .from('profiles')
         .update({ name: newName.trim() })
         .eq('id', user.id)
       if (error) throw error
-      // Also update family_members display_name
       await supabase
         .from('family_members')
         .update({ display_name: newName.trim() })
         .eq('user_id', user.id)
-      // Update local profile state
       await updateProfile({ name: newName.trim() })
       showToast('Name updated ✓')
       setAccountMode('none')
@@ -332,7 +296,6 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
       {/* Account */}
       <span className="section-label">Your Account</span>
       <div className="card" style={{ marginBottom: '1.5rem' }}>
-        {/* Profile header */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: accountMode === 'none' ? 0 : '1rem' }}>
           <div style={{ width: 42, height: 42, borderRadius: '50%', background: 'var(--bg4)', border: '0.5px solid var(--border-gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', color: 'var(--gold)', fontWeight: 500, flexShrink: 0 }}>
             {profile?.name?.charAt(0) || '?'}
@@ -349,7 +312,6 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
           </button>
         </div>
 
-        {/* Edit menu */}
         {accountMode === 'menu' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: '0.75rem' }}>
             <button className="btn" style={{ width: '100%', textAlign: 'left', fontSize: '13px' }} onClick={() => { setNewName(profile?.name || ''); setAccountMode('name') }}>
@@ -364,7 +326,6 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
           </div>
         )}
 
-        {/* Change name form */}
         {accountMode === 'name' && (
           <div style={{ marginTop: '0.75rem' }}>
             <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.5rem' }}>Display name</p>
@@ -385,7 +346,6 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
           </div>
         )}
 
-        {/* Change email form */}
         {accountMode === 'email' && (
           <div style={{ marginTop: '0.75rem' }}>
             <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.5rem' }}>New email address</p>
@@ -408,7 +368,6 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
           </div>
         )}
 
-        {/* Change password form */}
         {accountMode === 'password' && (
           <div style={{ marginTop: '0.75rem' }}>
             <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.5rem' }}>New password</p>
@@ -441,7 +400,6 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
       {/* Circles */}
       <span className="section-label">Your Circles</span>
 
-      {/* Existing tables */}
       {allFamilies.map(family => (
         <div key={family.id} className="card" style={{ marginBottom: '1rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
@@ -465,7 +423,6 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
             <button className="btn btn-gold" onClick={() => shareInviteCode(family)}>📤 Share invite</button>
           </div>
 
-          {/* Sit here tonight button */}
           <button
             className="btn btn-gold"
             style={{ width: '100%', marginBottom: 8, fontSize: '13px' }}
@@ -520,7 +477,6 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
         </div>
       ))}
 
-      {/* Create / Join — always available, even if you already have tables */}
       <div className="card" style={{ marginBottom: '1.5rem' }}>
         {circleMode === 'none' && (
           <>
@@ -666,7 +622,7 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
       </div>
 
       {/* Feedback */}
-      <a
+      
         href="mailto:steve@onetengroup.ai?subject=DWJ Feedback&body=Hi Steve,%0D%0A%0D%0AHere's my feedback on Dinner with Jesus:%0D%0A%0D%0A"
         style={{ display: 'block', textDecoration: 'none', marginBottom: '0.75rem' }}
       >
@@ -675,7 +631,6 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
         </button>
       </a>
 
-      {/* Admin — only visible to Steve */}
       {isAdmin && (
         <button
           className="btn"
@@ -686,7 +641,6 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
         </button>
       )}
 
-      {/* Sign out */}
       <button className="btn" style={{ marginBottom: '2rem', color: '#E57373', borderColor: 'rgba(229,115,115,0.2)' }} onClick={signOut}>
         Sign out
       </button>
