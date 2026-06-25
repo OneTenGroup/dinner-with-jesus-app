@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
+import { useFamily } from '../hooks/useFamily'
 import { supabase } from '../lib/supabase'
 import BiblePage from './BiblePage'
 
@@ -67,8 +68,52 @@ const sectionSubStyle = {
   lineHeight: 1.5,
 }
 
+async function lockVerseForGroup(groupId) {
+  if (!groupId) return { error: 'No group found' }
+  const today = new Date().toISOString().split('T')[0]
+
+  // Check if already locked
+  const { data: existing } = await supabase
+    .from('group_verse')
+    .select('dinner_verse_id')
+    .eq('group_id', groupId)
+    .eq('verse_date', today)
+    .single()
+
+  if (existing?.dinner_verse_id) return { alreadyLocked: true }
+
+  // Pick a verse not yet discussed
+  const { data: historyData } = await supabase
+    .from('verse_history')
+    .select('dinner_verse_id')
+
+  const discussedIds = historyData?.map(d => d.dinner_verse_id) || []
+
+  const { data: allVerses } = await supabase
+    .from('dinner_verses')
+    .select('id')
+    .eq('active', true)
+    .limit(200)
+
+  if (!allVerses || allVerses.length === 0) return { error: 'No verses available' }
+
+  const available = discussedIds.length > 0
+    ? allVerses.filter(v => !discussedIds.includes(v.id))
+    : allVerses
+  const pool = available.length > 0 ? available : allVerses
+  const picked = pool[Math.floor(Math.random() * pool.length)]
+
+  const { error } = await supabase
+    .from('group_verse')
+    .upsert({ group_id: groupId, dinner_verse_id: picked.id, verse_date: today }, { onConflict: 'group_id,verse_date' })
+
+  if (error) return { error: 'Could not lock verse' }
+  return { success: true }
+}
+
 export default function HomePage({ onGoToTable, activeMembers, setActiveMembers, allMembers, stats }) {
   const { profile, user } = useAuth()
+  const { group, members } = useFamily()
   const [greeting, setGreeting] = useState({ msg: 'Welcome.', sub: '' })
   const [currentTime, setCurrentTime] = useState('')
   const [timeVerses, setTimeVerses] = useState([])
@@ -77,8 +122,8 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
   const [selectedTimeVerse, setSelectedTimeVerse] = useState(null)
   const [announcement, setAnnouncement] = useState(null)
   const [bannerDismissed, setBannerDismissed] = useState(false)
-  const [inviteCode, setInviteCode] = useState('')
-  const [familyName, setFamilyName] = useState('')
+  const [verseLocked, setVerseLocked] = useState(false)
+  const [lockingVerse, setLockingVerse] = useState(false)
 
   const [selectedFeeling, setSelectedFeeling] = useState(null)
   const [feelingVerse, setFeelingVerse] = useState(null)
@@ -87,8 +132,10 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
   const [showFeelingPopup, setShowFeelingPopup] = useState(false)
   const [showPrayOverlay, setShowPrayOverlay] = useState(false)
   const [showBible, setShowBible] = useState(false)
+  const [toast, setToast] = useState('')
 
-  const familyMembers = allMembers || []
+  const familyMembers = members || []
+  const isOwner = group?.isOwner
 
   useEffect(() => {
     const h = new Date().getHours()
@@ -97,31 +144,36 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
     updateTime()
     const timer = setInterval(updateTime, 30000)
     loadAnnouncement()
-    loadInviteCode()
+    checkVerseLocked()
     return () => clearInterval(timer)
-  }, [])
+  }, [group])
 
-  async function loadInviteCode() {
-    if (!user?.id) return
-    try {
-      const { data: memberData } = await supabase
-        .from('family_members')
-        .select('family_id')
-        .eq('user_id', user.id)
-        .limit(1)
-        .single()
-      if (memberData?.family_id) {
-        const { data: familyData } = await supabase
-          .from('families')
-          .select('name, invite_code')
-          .eq('id', memberData.family_id)
-          .single()
-        if (familyData) {
-          setInviteCode(familyData.invite_code || '')
-          setFamilyName(familyData.name || '')
-        }
-      }
-    } catch (err) {}
+  async function checkVerseLocked() {
+    if (!group?.id) return
+    const today = new Date().toISOString().split('T')[0]
+    const { data } = await supabase
+      .from('group_verse')
+      .select('id')
+      .eq('group_id', group.id)
+      .eq('verse_date', today)
+      .single()
+    setVerseLocked(!!data)
+  }
+
+  async function handleLockVerse() {
+    if (!group?.id) { showToast('You need a dinner circle first.'); return }
+    setLockingVerse(true)
+    const result = await lockVerseForGroup(group.id)
+    if (result.alreadyLocked) {
+      showToast("Tonight's verse is already set. 🙏")
+      setVerseLocked(true)
+    } else if (result.success) {
+      showToast("Tonight's verse is set! Now share your invite code. 🙏")
+      setVerseLocked(true)
+    } else {
+      showToast(result.error || 'Could not set verse. Try again.')
+    }
+    setLockingVerse(false)
   }
 
   async function loadAnnouncement() {
@@ -135,17 +187,13 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
         .limit(1)
       if (data && data.length > 0) {
         const ann = data[0]
-        if (dismissed !== ann.id) {
-          setAnnouncement(ann)
-        }
+        if (dismissed !== ann.id) setAnnouncement(ann)
       }
     } catch (err) {}
   }
 
   function dismissBanner() {
-    if (announcement) {
-      localStorage.setItem('dwj_announcement_dismissed', announcement.id)
-    }
+    if (announcement) localStorage.setItem('dwj_announcement_dismissed', announcement.id)
     setBannerDismissed(true)
   }
 
@@ -154,12 +202,6 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
     let h = now.getHours() % 12 || 12
     const m = now.getMinutes().toString().padStart(2, '0')
     setCurrentTime(`${h}:${m}`)
-  }
-
-  function toggleMember(name) {
-    setActiveMembers(prev =>
-      prev.includes(name) ? prev.filter(m => m !== name) : [...prev, name]
-    )
   }
 
   async function loadTimeVerses() {
@@ -178,9 +220,7 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
       if (error) throw error
       setTimeVerses(data || [])
       setTimeLoaded(true)
-    } catch (err) {
-      console.error('Time verse error:', err)
-    }
+    } catch (err) {}
     setTimeLoading(false)
   }
 
@@ -197,9 +237,7 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
         .order('display_order')
       if (data && data.length > 0) setFeelingVerse(data[0])
       else setFeelingVerse(null)
-    } catch (err) {
-      setFeelingVerse(null)
-    }
+    } catch (err) { setFeelingVerse(null) }
     setFeelingLoading(false)
   }
 
@@ -218,6 +256,11 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
     setFeelingLoading(false)
   }
 
+  function showToast(msg) {
+    setToast(msg)
+    setTimeout(() => setToast(''), 3000)
+  }
+
   const feeling = FEELINGS.find(f => f.key === selectedFeeling)
 
   const conversationMsg = stats.conversations === 0
@@ -229,35 +272,13 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
   return (
     <div className="screen" style={{ paddingTop: '1rem' }}>
 
-      {/* Bible Reader */}
       {showBible && <BiblePage onClose={() => setShowBible(false)} />}
 
-      {/* Announcement Banner */}
       {announcement && !bannerDismissed && (
-        <div style={{
-          position: 'sticky',
-          top: 0,
-          zIndex: 50,
-          background: 'var(--bg3)',
-          border: '0.5px solid rgba(76,175,118,0.4)',
-          borderRadius: '10px',
-          padding: '0.75rem 1rem',
-          marginBottom: '1rem',
-          display: 'flex',
-          alignItems: 'flex-start',
-          gap: '10px',
-          borderLeft: '3px solid var(--gold)',
-        }}>
+        <div style={{ position: 'sticky', top: 0, zIndex: 50, background: 'var(--bg3)', border: '0.5px solid rgba(76,175,118,0.4)', borderRadius: '10px', padding: '0.75rem 1rem', marginBottom: '1rem', display: 'flex', alignItems: 'flex-start', gap: '10px', borderLeft: '3px solid var(--gold)' }}>
           <span style={{ fontSize: '1rem', flexShrink: 0, marginTop: '1px' }}>📣</span>
-          <p style={{ fontSize: '13px', color: 'var(--cream)', lineHeight: 1.6, flex: 1, margin: 0 }}>
-            {announcement.message}
-          </p>
-          <button
-            onClick={dismissBanner}
-            style={{ background: 'none', border: 'none', color: 'var(--silver)', fontSize: '16px', cursor: 'pointer', padding: '0 0 0 8px', flexShrink: 0, lineHeight: 1 }}
-          >
-            ✕
-          </button>
+          <p style={{ fontSize: '13px', color: 'var(--cream)', lineHeight: 1.6, flex: 1, margin: 0 }}>{announcement.message}</p>
+          <button onClick={dismissBanner} style={{ background: 'none', border: 'none', color: 'var(--silver)', fontSize: '16px', cursor: 'pointer', padding: '0 0 0 8px', flexShrink: 0, lineHeight: 1 }}>✕</button>
         </div>
       )}
 
@@ -272,12 +293,8 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
       {/* Greeting */}
       <div style={{ ...sectionStyle, background: 'var(--bg2)' }}>
         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: 'linear-gradient(90deg, var(--gold), transparent)' }} />
-        <div style={{ fontFamily: 'Lora, serif', fontSize: '1rem', color: 'var(--white)', lineHeight: 1.5, marginBottom: 4 }}>
-          {greeting.msg}
-        </div>
-        <div style={{ fontSize: '13px', color: 'var(--silver2)', fontStyle: 'italic', fontWeight: 300 }}>
-          {greeting.sub}
-        </div>
+        <div style={{ fontFamily: 'Lora, serif', fontSize: '1rem', color: 'var(--white)', lineHeight: 1.5, marginBottom: 4 }}>{greeting.msg}</div>
+        <div style={{ fontSize: '13px', color: 'var(--silver2)', fontStyle: 'italic', fontWeight: 300 }}>{greeting.sub}</div>
       </div>
 
       {/* Tonight's Table */}
@@ -285,42 +302,36 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: 'linear-gradient(90deg, var(--gold), transparent)' }} />
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
           <span style={sectionTitleStyle}>Tonight's Table</span>
-          {familyMembers.length > 0 && (
-            <span style={{ fontSize: '11px', color: 'var(--silver)', fontWeight: 300 }}>Tap to remove</span>
-          )}
         </div>
         <p style={sectionSubStyle}>The table is set. He's already here.</p>
 
         {familyMembers.length === 0 ? (
           <p style={{ fontSize: '13px', color: 'var(--silver)', fontStyle: 'italic', marginBottom: '1rem', lineHeight: 1.6 }}>
-            Your table is empty. Go to Settings to create or join a table.
+            Your table is empty. Go to Settings to create or join a dinner circle.
           </p>
         ) : (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: '1rem' }}>
             {familyMembers.map(m => (
-              <button
-                key={m}
-                className={`member-chip ${activeMembers && activeMembers.includes(m) ? '' : 'off'}`}
-                onClick={() => toggleMember(m)}
-              >
+              <div key={m} className="member-chip">
                 <div className="member-dot"></div>
                 {m}
-              </button>
+              </div>
             ))}
           </div>
         )}
-        {inviteCode && (
+
+        {/* Lock verse button */}
+        {group && (
           <button
             className="btn"
-            style={{ width: '100%', marginBottom: 8, background: 'var(--gold-soft)', borderColor: 'var(--border-gold)', color: 'var(--gold)', fontSize: '13px' }}
-            onClick={() => {
-              const msg = encodeURIComponent(`Hey — join us at the dinner table tonight on Dinner with Jesus!\n\nDownload the app at flippingtables.ai and enter this code in Settings:\n\n${inviteCode}\n\nOne verse. Real conversation. 15 minutes. You won't regret it. 🙏`)
-              window.open(`sms:?body=${msg}`)
-            }}
+            style={{ width: '100%', marginBottom: 8, background: verseLocked ? 'var(--bg3)' : 'var(--gold-soft)', borderColor: 'var(--border-gold)', color: verseLocked ? 'var(--silver)' : 'var(--gold)', fontSize: '13px' }}
+            onClick={handleLockVerse}
+            disabled={lockingVerse || verseLocked}
           >
-            🪑 Invite someone to the table tonight
+            {lockingVerse ? 'Setting the table...' : verseLocked ? '✓ Tonight\'s verse is set' : '🔒 Set tonight\'s verse'}
           </button>
         )}
+
         <button className="btn btn-gold" onClick={onGoToTable}>
           Let's Get Started 🙏
         </button>
@@ -331,19 +342,14 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: 'linear-gradient(90deg, var(--gold), transparent)' }} />
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 8, background: 'var(--gold-soft)', border: '0.5px solid var(--border-gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem', flexShrink: 0 }}>
-              🕐
-            </div>
+            <div style={{ width: 36, height: 36, borderRadius: 8, background: 'var(--gold-soft)', border: '0.5px solid var(--border-gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem', flexShrink: 0 }}>🕐</div>
             <div>
               <span style={sectionTitleStyle}>Your verse for this moment</span>
               <p style={{ ...sectionSubStyle, marginBottom: 0, fontSize: '12px' }}>God speaks through Scripture — even in the numbers</p>
             </div>
           </div>
-          <div style={{ fontFamily: 'Lora, serif', fontSize: '1.4rem', fontWeight: 600, color: 'var(--gold)', letterSpacing: '0.05em', flexShrink: 0, marginLeft: 8 }}>
-            {currentTime}
-          </div>
+          <div style={{ fontFamily: 'Lora, serif', fontSize: '1.4rem', fontWeight: 600, color: 'var(--gold)', letterSpacing: '0.05em', flexShrink: 0, marginLeft: 8 }}>{currentTime}</div>
         </div>
-
         <div style={{ marginTop: '1rem' }}>
           {!timeLoaded ? (
             <button className="btn btn-gold" onClick={loadTimeVerses} disabled={timeLoading} style={{ width: '100%', fontSize: '14px', padding: '12px' }}>
@@ -352,8 +358,7 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
           ) : timeVerses.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '0.75rem 0' }}>
               <p style={{ fontSize: '13px', color: 'var(--silver)', lineHeight: 1.7, marginBottom: '0.75rem' }}>
-                No verses found for {currentTime}.<br />
-                <span style={{ color: 'var(--gold)', fontStyle: 'italic' }}>Try again at a different moment.</span>
+                No verses found for {currentTime}.<br /><span style={{ color: 'var(--gold)', fontStyle: 'italic' }}>Try again at a different moment.</span>
               </p>
               <button className="btn" onClick={() => { setTimeLoaded(false); setTimeVerses([]) }}>Try current time</button>
             </div>
@@ -364,18 +369,12 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
               </p>
               {timeVerses.map(v => (
                 <div key={v.id} onClick={() => setSelectedTimeVerse(selectedTimeVerse?.id === v.id ? null : v)}
-                  style={{ padding: '0.875rem', background: selectedTimeVerse?.id === v.id ? 'var(--gold-soft)' : 'var(--bg3)', borderRadius: 10, border: `0.5px solid ${selectedTimeVerse?.id === v.id ? 'var(--border-gold)' : 'var(--border)'}`, marginBottom: 8, cursor: 'pointer', transition: 'all 0.15s' }}>
-                  <div style={{ fontSize: '11px', fontWeight: 500, color: 'var(--gold)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '0.35rem' }}>
-                    {v.book} {v.chapter}:{v.verse}
-                  </div>
-                  <div style={{ fontFamily: 'Lora, serif', fontSize: '0.88rem', fontStyle: 'italic', color: 'var(--white)', lineHeight: 1.7 }}>
-                    "{v.text_kjv}"
-                  </div>
+                  style={{ padding: '0.875rem', background: selectedTimeVerse?.id === v.id ? 'var(--gold-soft)' : 'var(--bg3)', borderRadius: 10, border: `0.5px solid ${selectedTimeVerse?.id === v.id ? 'var(--border-gold)' : 'var(--border)'}`, marginBottom: 8, cursor: 'pointer' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 500, color: 'var(--gold)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '0.35rem' }}>{v.book} {v.chapter}:{v.verse}</div>
+                  <div style={{ fontFamily: 'Lora, serif', fontSize: '0.88rem', fontStyle: 'italic', color: 'var(--white)', lineHeight: 1.7 }}>"{v.text_kjv}"</div>
                 </div>
               ))}
-              <button className="btn" style={{ marginTop: '0.25rem' }} onClick={() => { setTimeLoaded(false); setTimeVerses([]); setSelectedTimeVerse(null) }}>
-                ↺ Refresh for current time
-              </button>
+              <button className="btn" style={{ marginTop: '0.25rem' }} onClick={() => { setTimeLoaded(false); setTimeVerses([]); setSelectedTimeVerse(null) }}>↺ Refresh for current time</button>
             </div>
           )}
         </div>
@@ -400,22 +399,16 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
       <div style={{ ...sectionStyle, textAlign: 'center', background: 'var(--bg3)', position: 'relative', overflow: 'hidden' }}>
         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: 'linear-gradient(90deg, var(--gold), transparent)' }} />
         <div style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>🍽️</div>
-        <p style={{ fontFamily: 'Lora, serif', fontSize: '17px', color: 'var(--gold)', lineHeight: 1.7, fontStyle: 'italic', fontWeight: 600 }}>
-          {conversationMsg}
-        </p>
+        <p style={{ fontFamily: 'Lora, serif', fontSize: '17px', color: 'var(--gold)', lineHeight: 1.7, fontStyle: 'italic', fontWeight: 600 }}>{conversationMsg}</p>
       </div>
 
-      {/* Bible Reader Link */}
+      {/* Bible Reader */}
       <div style={{ textAlign: 'center', marginBottom: '0.75rem' }}>
-        <button
-          onClick={() => setShowBible(true)}
-          style={{ background: 'none', border: 'none', color: 'var(--gold)', fontSize: '14px', cursor: 'pointer', fontFamily: 'Lora, serif', fontStyle: 'italic', textDecoration: 'underline', textUnderlineOffset: '3px' }}
-        >
+        <button onClick={() => setShowBible(true)} style={{ background: 'none', border: 'none', color: 'var(--gold)', fontSize: '14px', cursor: 'pointer', fontFamily: 'Lora, serif', fontStyle: 'italic', textDecoration: 'underline', textUnderlineOffset: '3px' }}>
           📖 Read the Bible
         </button>
       </div>
 
-      {/* OneTen credit */}
       <p style={{ textAlign: 'center', fontSize: '11px', color: 'var(--silver)', opacity: 0.5, paddingBottom: '1.5rem' }}>
         Built by <a href="https://onetengroup.ai" target="_blank" rel="noreferrer" style={{ color: 'var(--gold)', textDecoration: 'none' }}>OneTen Group</a> · 1:10
       </p>
@@ -435,16 +428,10 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
                 <div style={{ fontSize: '11px', fontWeight: 500, color: 'var(--gold)', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
                   {feeling?.emoji} {feelingVerse.verse_ref} — for when you feel {feeling?.label?.toLowerCase()}
                 </div>
-                <div style={{ fontFamily: 'Lora, serif', fontSize: '1.05rem', fontStyle: 'italic', color: 'var(--white)', lineHeight: 1.7, marginBottom: '0.875rem' }}>
-                  "{feelingVerse.verse_text}"
-                </div>
-                <p style={{ fontSize: '13px', color: 'var(--silver)', lineHeight: 1.7, marginBottom: '0.875rem', fontStyle: 'italic', fontWeight: 300 }}>
-                  {feelingVerse.context_text}
-                </p>
+                <div style={{ fontFamily: 'Lora, serif', fontSize: '1.05rem', fontStyle: 'italic', color: 'var(--white)', lineHeight: 1.7, marginBottom: '0.875rem' }}>"{feelingVerse.verse_text}"</div>
+                <p style={{ fontSize: '13px', color: 'var(--silver)', lineHeight: 1.7, marginBottom: '0.875rem', fontStyle: 'italic', fontWeight: 300 }}>{feelingVerse.context_text}</p>
                 <div style={{ background: 'var(--bg3)', borderRadius: 10, padding: '1rem', marginBottom: '1rem', border: '0.5px solid var(--border)' }}>
-                  <p style={{ fontFamily: 'Lora, serif', fontSize: '13px', fontStyle: 'italic', color: 'var(--cream)', lineHeight: 1.8, margin: 0 }}>
-                    {feelingVerse.prayer_text}
-                  </p>
+                  <p style={{ fontFamily: 'Lora, serif', fontSize: '13px', fontStyle: 'italic', color: 'var(--cream)', lineHeight: 1.8, margin: 0 }}>{feelingVerse.prayer_text}</p>
                 </div>
                 <div className="btn-row">
                   <button className="btn" onClick={nextFeelingVerse}>↺ Another verse</button>
@@ -464,15 +451,13 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
       {showPrayOverlay && feelingVerse && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(13,24,41,0.98)', zIndex: 200, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '2rem', textAlign: 'center', backdropFilter: 'blur(8px)' }}>
           <div style={{ fontSize: '1.8rem', marginBottom: '1rem' }}>✝️</div>
-          <p style={{ fontFamily: 'Lora, serif', fontSize: '0.95rem', fontStyle: 'italic', color: 'var(--white)', lineHeight: 1.85, maxWidth: 380, marginBottom: '0.875rem' }}>
-            {feelingVerse.prayer_text}
-          </p>
+          <p style={{ fontFamily: 'Lora, serif', fontSize: '0.95rem', fontStyle: 'italic', color: 'var(--white)', lineHeight: 1.85, maxWidth: 380, marginBottom: '0.875rem' }}>{feelingVerse.prayer_text}</p>
           <p style={{ fontSize: '13px', color: 'var(--silver)', marginBottom: '2rem' }}>— Amen 🙏</p>
-          <button className="btn btn-gold" style={{ width: 'auto', padding: '11px 2rem' }} onClick={() => { setShowPrayOverlay(false); setShowFeelingPopup(false) }}>
-            Close
-          </button>
+          <button className="btn btn-gold" style={{ width: 'auto', padding: '11px 2rem' }} onClick={() => { setShowPrayOverlay(false); setShowFeelingPopup(false) }}>Close</button>
         </div>
       )}
+
+      <div className={`toast ${toast ? 'show' : ''}`}>{toast}</div>
     </div>
   )
 }
