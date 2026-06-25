@@ -20,7 +20,7 @@ function generateInviteCode() {
   return code
 }
 
-export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmin }) {
+export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmin, onJoined }) {
   const { user, profile, signOut, updateProfile } = useAuth()
   const { reload } = useFamily()
   const [toast, setToast] = useState('')
@@ -170,6 +170,7 @@ export default function SettingsPage({ members = [], isAdmin = false, onOpenAdmi
       await loadFamilyInfo()
       await reload()
       showToast(`Welcome to ${familyData.name}! 🙏`)
+      setTimeout(() => onJoined && onJoined(), 1200)
     } catch (err) {
       showToast('Something went wrong. Try again.')
     }
