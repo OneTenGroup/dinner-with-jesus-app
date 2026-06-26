@@ -143,7 +143,8 @@ export default function App() {
     <div className="app-shell">
       {showAdmin && <AdminPage onClose={() => setShowAdmin(false)} />}
 
-      {activeTab === 'home' && (
+      {/* All pages stay mounted — hidden with CSS to prevent flicker */}
+      <div style={{ display: activeTab === 'home' ? 'block' : 'none', height: '100%', overflow: 'auto' }}>
         <HomePage
           onGoToTable={goToTable}
           activeMembers={members}
@@ -151,20 +152,26 @@ export default function App() {
           allMembers={members}
           stats={stats}
         />
-      )}
-      {activeTab === 'story' && <StoryPage />}
-      {activeTab === 'table' && (
-        <TablePage
-          onLeaveTable={handleLeaveTable}
-        />
-      )}
-      {activeTab === 'journal' && <JournalPage />}
-      {activeTab === 'settings' && (
+      </div>
+
+      <div style={{ display: activeTab === 'story' ? 'block' : 'none', height: '100%', overflow: 'auto' }}>
+        <StoryPage />
+      </div>
+
+      <div style={{ display: activeTab === 'table' ? 'block' : 'none', height: '100%', overflow: 'auto' }}>
+        <TablePage onLeaveTable={handleLeaveTable} />
+      </div>
+
+      <div style={{ display: activeTab === 'journal' ? 'block' : 'none', height: '100%', overflow: 'auto' }}>
+        <JournalPage />
+      </div>
+
+      <div style={{ display: activeTab === 'settings' ? 'block' : 'none', height: '100%', overflow: 'auto' }}>
         <SettingsPage
           isAdmin={isAdmin}
           onOpenAdmin={() => setShowAdmin(true)}
         />
-      )}
+      </div>
 
       {/* Hide nav while at the table */}
       {!atTable && (
