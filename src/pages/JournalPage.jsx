@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { useFamily } from '../hooks/useFamily'
 
 const TABS = [
   { id: 'personal', label: 'My Journal' },
@@ -9,6 +10,7 @@ const TABS = [
 
 export default function JournalPage() {
   const { user } = useAuth()
+  const { group } = useFamily()
   const [activeTab, setActiveTab] = useState('personal')
   const [notes, setNotes] = useState([])
   const [loading, setLoading] = useState(true)
@@ -18,34 +20,27 @@ export default function JournalPage() {
 
   useEffect(() => {
     loadNotes()
-  }, [activeTab])
+  }, [activeTab, group])
 
   async function loadNotes() {
     setLoading(true)
     try {
       if (activeTab === 'personal') {
-        // Personal notes — only this user, no verse_ref (not dinner notes)
+        // All notes belonging to this user
         const { data } = await supabase
           .from('notes')
           .select('*')
           .eq('user_id', user.id)
-          .is('verse_ref', null)
+          .is('family_id', null)
           .order('created_at', { ascending: false })
         setNotes(data || [])
       } else {
-        // Family table notes — find this user's family first
-        const { data: memberData } = await supabase
-          .from('family_members')
-          .select('family_id')
-          .eq('user_id', user.id)
-          .single()
-
-        if (memberData?.family_id) {
+        // Group/family table notes
+        if (group?.id) {
           const { data } = await supabase
             .from('notes')
             .select('*')
-            .eq('family_id', memberData.family_id)
-            .not('verse_ref', 'is', null)
+            .eq('family_id', group.id)
             .order('created_at', { ascending: false })
           setNotes(data || [])
         } else {
@@ -66,7 +61,8 @@ export default function JournalPage() {
         user_id: user.id,
         content: newNote,
         category: 'Personal',
-        verse_ref: null
+        verse_ref: null,
+        family_id: null
       })
       setNewNote('')
       showToast('Saved to your journal. ✓')
@@ -135,22 +131,26 @@ export default function JournalPage() {
             placeholder="Something on your heart today..."
             style={{ minHeight: 80, resize: 'none', marginBottom: 8 }}
           />
-          <button
-            className="btn btn-gold"
-            onClick={saveNote}
-            disabled={saving}
-          >
+          <button className="btn btn-gold" onClick={saveNote} disabled={saving}>
             {saving ? 'Saving...' : 'Save to my journal'}
           </button>
         </div>
       )}
 
+      {/* Family tab — no group */}
+      {activeTab === 'family' && !group && (
+        <div style={{ textAlign: 'center', padding: '2rem 1rem' }}>
+          <div style={{ fontSize: '2rem', marginBottom: '0.75rem' }}>🍽️</div>
+          <p style={{ fontSize: '13px', color: 'var(--silver)', lineHeight: 1.7 }}>
+            You're not in a dinner circle yet. Go to Settings to create or join one.
+          </p>
+        </div>
+      )}
+
       {/* Notes list */}
       {loading ? (
-        <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--silver)' }}>
-          Loading...
-        </div>
-      ) : notes.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--silver)' }}>Loading...</div>
+      ) : notes.length === 0 && (activeTab === 'personal' || group) ? (
         <div style={{ textAlign: 'center', padding: '3rem 1rem' }}>
           <div style={{ fontSize: '2.5rem', marginBottom: '0.875rem' }}>
             {activeTab === 'personal' ? '✏️' : '🍽'}
@@ -173,14 +173,12 @@ export default function JournalPage() {
                 <div style={{ fontSize: '11px', color: 'var(--silver)' }}>
                   {new Date(note.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                 </div>
-                {activeTab === 'personal' && (
-                  <button
-                    onClick={() => deleteNote(note.id)}
-                    style={{ background: 'none', border: 'none', color: 'var(--silver)', cursor: 'pointer', fontSize: '14px', opacity: 0.5, padding: 0 }}
-                  >
-                    ✕
-                  </button>
-                )}
+                <button
+                  onClick={() => deleteNote(note.id)}
+                  style={{ background: 'none', border: 'none', color: 'var(--silver)', cursor: 'pointer', fontSize: '14px', opacity: 0.5, padding: 0 }}
+                >
+                  ✕
+                </button>
               </div>
             </div>
             {note.category && note.verse_ref && (
