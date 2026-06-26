@@ -21,7 +21,7 @@ export default function TablePage({ onLeaveTable }) {
   const [error, setError] = useState(null)
   const [noteText, setNoteText] = useState('')
   const [savingNote, setSavingNote] = useState(false)
-  const [noteTarget, setNoteTarget] = useState('both') // 'personal' | 'group' | 'both'
+  const [noteTarget, setNoteTarget] = useState('both')
   const [toast, setToast] = useState('')
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false)
   const [showBlessing, setShowBlessing] = useState(false)
@@ -29,6 +29,7 @@ export default function TablePage({ onLeaveTable }) {
   const [showPrayerOverlay, setShowPrayerOverlay] = useState(false)
   const [prayerIdx, setPrayerIdx] = useState(0)
   const [prayedCount, setPrayedCount] = useState(0)
+  const [discussed, setDiscussed] = useState(false)
 
   const faithLevel = profile?.faith_level || 1
 
@@ -44,7 +45,6 @@ export default function TablePage({ onLeaveTable }) {
       const groupId = group?.id
 
       if (groupId) {
-        // Check sticky note first
         const { data: sticky } = await supabase
           .from('group_verse')
           .select('dinner_verse_id')
@@ -60,13 +60,21 @@ export default function TablePage({ onLeaveTable }) {
             .single()
           if (verseData) {
             setVerse(verseData)
+            // Check if already discussed tonight
+            const { data: historyData } = await supabase
+              .from('verse_history')
+              .select('id')
+              .eq('dinner_verse_id', verseData.id)
+              .eq('user_id', user.id)
+              .gte('discussed_at', today)
+              .single()
+            setDiscussed(!!historyData)
             setLoading(false)
             return
           }
         }
       }
 
-      // No sticky note — pick a verse
       const { data: historyData } = await supabase
         .from('verse_history')
         .select('dinner_verse_id')
@@ -93,8 +101,8 @@ export default function TablePage({ onLeaveTable }) {
       const picked = pool[Math.floor(Math.random() * pool.length)]
       setVerse(picked)
 
-      // Write sticky note
       if (groupId && picked) {
+        const today = new Date().toISOString().split('T')[0]
         await supabase
           .from('group_verse')
           .upsert({ group_id: groupId, dinner_verse_id: picked.id, verse_date: today }, { onConflict: 'group_id,verse_date' })
@@ -104,6 +112,21 @@ export default function TablePage({ onLeaveTable }) {
       setError('Could not load verse. Please try again.')
     }
     setLoading(false)
+  }
+
+  async function markDiscussed() {
+    if (!verse || discussed) return
+    try {
+      await supabase.from('verse_history').upsert({
+        dinner_verse_id: verse.id,
+        user_id: user.id,
+        discussed_at: new Date().toISOString()
+      }, { onConflict: 'dinner_verse_id,user_id' })
+      setDiscussed(true)
+      showToast('Beautiful conversation tonight. 🙏')
+    } catch (err) {
+      showToast('Could not save. Try again.')
+    }
   }
 
   function getQuestion(level) {
@@ -296,6 +319,18 @@ export default function TablePage({ onLeaveTable }) {
         </div>
       </div>
 
+      {/* We discussed this */}
+      <div style={{ marginBottom: '0.875rem' }}>
+        <button
+          className="btn btn-gold"
+          style={{ width: '100%', opacity: discussed ? 0.6 : 1 }}
+          onClick={markDiscussed}
+          disabled={discussed}
+        >
+          {discussed ? '✓ Conversation saved for tonight' : '✓ We discussed this tonight 🙏'}
+        </button>
+      </div>
+
       {/* Journal */}
       <div style={cardBase}>
         <div style={goldAccent} />
@@ -310,7 +345,6 @@ export default function TablePage({ onLeaveTable }) {
           style={{ minHeight: 72, resize: 'none', marginBottom: 8 }}
         />
 
-        {/* Save target */}
         <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
           {[
             { key: 'personal', label: 'My journal' },
