@@ -156,7 +156,7 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
   }
 
   function shareInviteCode() {
-    const msg = `Join my dinner table on Dinner with Jesus!\n\nEnter this code in the app Settings:\n${group.invite_code}\n\nDownload at flippingtables.ai`
+    const msg = `Hey — we set a place for you at our table tonight.\n\nWe're doing Dinner with Jesus — one verse, one real conversation, one prayer. Takes 15 minutes and it's genuinely special.\n\nDownload the app at flippingtables.ai and enter this code in Settings:\n\n${group.invite_code}\n\nDon't be late. 🙏`
     if (navigator.share) {
       navigator.share({ text: msg })
     } else {
