@@ -88,6 +88,21 @@ export default function App() {
     if (user && !isPasswordReset && !hasSeenTodaysScene()) setShowKendyl(true)
   }, [user])
 
+  // Load real conversation count from verse_history
+  useEffect(() => {
+    if (!user) return
+    async function loadStats() {
+      try {
+        const { count } = await supabase
+          .from('verse_history')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+        setStats({ conversations: count || 0 })
+      } catch (err) {}
+    }
+    loadStats()
+  }, [user])
+
   if (isPasswordReset) {
     return (
       <ResetPasswordScreen onDone={() => {
