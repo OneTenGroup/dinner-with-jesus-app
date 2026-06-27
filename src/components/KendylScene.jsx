@@ -234,17 +234,15 @@ function getDayKey() {
   return `dwj_seen_${now.getFullYear()}_${now.getMonth()}_${now.getDate()}`
 }
 
-// Returns true if user has already seen the scene today
 export function hasSeenTodaysScene() {
   try {
-    return localStorage.getItem(getDayKey()) === 'true'
+    return sessionStorage.getItem('dwj_seen_this_session') === 'true'
   } catch (e) { return false }
 }
 
-// Mark today's scene as seen
 function markSeenToday() {
   try {
-    localStorage.setItem(getDayKey(), 'true')
+    sessionStorage.setItem('dwj_seen_this_session', 'true')
   } catch (e) {}
 }
 
