@@ -75,6 +75,15 @@ export default function App() {
   const [showKendyl, setShowKendyl] = useState(false)
   const [isPasswordReset, setIsPasswordReset] = useState(false)
   const [showAdmin, setShowAdmin] = useState(false)
+
+  // Check if we have a cached user — skip loader if we do
+  const [cachedUser] = useState(() => {
+    try {
+      const cached = localStorage.getItem('dwj_user_cached')
+      return cached === 'true'
+    } catch (e) { return false }
+  })
+
   const isAdmin = user?.id === ADMIN_USER_ID
 
   useEffect(() => {
@@ -83,6 +92,15 @@ export default function App() {
       setIsPasswordReset(true)
     }
   }, [])
+
+  // Cache user state so waking up from background is instant
+  useEffect(() => {
+    if (user) {
+      localStorage.setItem('dwj_user_cached', 'true')
+    } else if (!loading) {
+      localStorage.removeItem('dwj_user_cached')
+    }
+  }, [user, loading])
 
   useEffect(() => {
     if (user && !isPasswordReset && !hasSeenTodaysScene()) setShowKendyl(true)
@@ -112,7 +130,9 @@ export default function App() {
     )
   }
 
-  if (loading || familyLoading) {
+  // Only show loader if we don't have a cached user
+  // If cached, show the app immediately and let auth verify silently
+  if ((loading || familyLoading) && !cachedUser) {
     return (
       <div style={{ background: 'var(--bg)', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '1rem' }}>
         <div style={{ fontSize: '2rem', animation: 'pulse 2s ease-in-out infinite' }}>✝️</div>
@@ -122,7 +142,13 @@ export default function App() {
     )
   }
 
-  if (!user) return <AuthPage />
+  if (!user && !cachedUser) return <AuthPage />
+
+  // If we have no user but had a cached one — still loading, show nothing
+  if (!user && cachedUser && loading) return null
+
+  // Session expired — clear cache and show auth
+  if (!user && !loading) return <AuthPage />
 
   if (user && profile && !profile.onboarding_complete && !onboardingDone) {
     return <OnboardingPage onComplete={() => setOnboardingDone(true)} />
@@ -158,7 +184,6 @@ export default function App() {
     <div className="app-shell">
       {showAdmin && <AdminPage onClose={() => setShowAdmin(false)} />}
 
-      {/* All pages stay mounted — hidden with CSS to prevent flicker */}
       <div style={{ display: activeTab === 'home' ? 'block' : 'none', height: '100%', overflow: 'auto' }}>
         <HomePage
           onGoToTable={goToTable}
@@ -188,7 +213,6 @@ export default function App() {
         />
       </div>
 
-      {/* Hide nav while at the table */}
       {!atTable && (
         <nav className="bottom-nav">
           {tabs.map(t => (
