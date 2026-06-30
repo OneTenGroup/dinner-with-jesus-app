@@ -14,7 +14,7 @@ const BLESSINGS = [
 
 export default function TablePage({ onLeaveTable }) {
   const { user, profile } = useAuth()
-  const { group, members } = useFamily()
+  const { group, members, loading: familyLoading } = useFamily()
 
   const [verse, setVerse] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -34,8 +34,13 @@ export default function TablePage({ onLeaveTable }) {
   const faithLevel = profile?.faith_level || 1
 
   useEffect(() => {
+    // CRITICAL: never load the verse until useFamily has fully resolved.
+    // This prevents the cold-start race condition where group is still
+    // null/loading and we accidentally pick + overwrite a fresh verse
+    // for the whole group.
+    if (familyLoading) return
     loadVerse()
-  }, [group])
+  }, [group?.id, familyLoading])
 
   async function loadVerse() {
     setLoading(true)
@@ -60,7 +65,6 @@ export default function TablePage({ onLeaveTable }) {
             .single()
           if (verseData) {
             setVerse(verseData)
-            // Check if already discussed tonight
             const { data: historyData } = await supabase
               .from('verse_history')
               .select('id')
@@ -75,6 +79,9 @@ export default function TablePage({ onLeaveTable }) {
         }
       }
 
+      // No groupId, or no sticky note found for an existing group yet.
+      // Only fall through to picking a NEW verse if we are CONFIDENT
+      // there is genuinely no sticky note today (not just an unloaded group).
       const { data: historyData } = await supabase
         .from('verse_history')
         .select('dinner_verse_id')
@@ -102,7 +109,6 @@ export default function TablePage({ onLeaveTable }) {
       setVerse(picked)
 
       if (groupId && picked) {
-        const today = new Date().toISOString().split('T')[0]
         await supabase
           .from('group_verse')
           .upsert({ group_id: groupId, dinner_verse_id: picked.id, verse_date: today }, { onConflict: 'group_id,verse_date' })
@@ -210,7 +216,7 @@ export default function TablePage({ onLeaveTable }) {
   const cardBase = { position: 'relative', overflow: 'hidden', background: 'var(--bg2)', border: '0.5px solid var(--border-gold)', borderRadius: '12px', padding: '1.25rem', marginBottom: '0.875rem' }
   const sectionTitle = { fontFamily: 'Lora, serif', fontSize: '1rem', fontWeight: 600, color: 'var(--white)', letterSpacing: '0.02em', marginBottom: '0.25rem', display: 'block' }
 
-  if (loading) return (
+  if (familyLoading || loading) return (
     <div className="loading-wrap" style={{ flex: 1 }}>
       <div className="loading-cross">✝️</div>
       <p style={{ color: 'var(--silver)', fontSize: '14px' }}>Preparing your verse...</p>
