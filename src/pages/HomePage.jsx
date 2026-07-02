@@ -395,22 +395,28 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
               <p style={{ fontSize: '13px', color: 'var(--silver)', lineHeight: 1.7, marginBottom: '0.75rem' }}>
                 No verses found for {currentTime}.<br /><span style={{ color: 'var(--gold)', fontStyle: 'italic' }}>Try again at a different moment.</span>
               </p>
-              <button className="btn" onClick={() => { setTimeLoaded(false); setTimeVerses([]) }}>Try current time</button>
-              <div style={{ marginTop: '0.875rem' }}>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <input
-                    type="text"
-                    placeholder="e.g. 6:24"
-                    value={customTimeInput}
-                    onChange={e => setCustomTimeInput(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && searchCustomTime()}
-                    maxLength={5}
-                    style={{ flex: 1, marginBottom: 0, textAlign: 'center', fontSize: '1rem', letterSpacing: '0.1em' }}
-                  />
-                  <button className="btn btn-gold" onClick={searchCustomTime} disabled={customTimeLoading} style={{ flexShrink: 0, padding: '0 1rem' }}>
-                    {customTimeLoading ? '...' : 'Find'}
-                  </button>
-                </div>
+              <button className="btn" style={{ width: '100%' }} onClick={() => { setTimeLoaded(false); setTimeVerses([]) }}>Try current time</button>
+              <div style={{ marginTop: '0.875rem', borderTop: '0.5px solid var(--border)', paddingTop: '0.875rem' }}>
+                <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.75rem', fontStyle: 'italic', textAlign: 'center' }}>
+                  Remember a moment from earlier? Search a specific time.
+                </p>
+                <input
+                  type="text"
+                  placeholder="Enter time — e.g. 6:24"
+                  value={customTimeInput}
+                  onChange={e => setCustomTimeInput(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && searchCustomTime()}
+                  maxLength={5}
+                  style={{ width: '100%', marginBottom: 8, textAlign: 'center', fontSize: '1.1rem', letterSpacing: '0.1em' }}
+                />
+                <button
+                  className="btn btn-gold"
+                  onClick={searchCustomTime}
+                  disabled={customTimeLoading}
+                  style={{ width: '100%' }}
+                >
+                  {customTimeLoading ? 'Searching...' : '🕐 Find verses for this time'}
+                </button>
               </div>
             </div>
           ) : (
@@ -425,30 +431,28 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
                   <div style={{ fontFamily: 'Lora, serif', fontSize: '0.88rem', fontStyle: 'italic', color: 'var(--white)', lineHeight: 1.7 }}>"{v.text_web}"</div>
                 </div>
               ))}
-              <button className="btn" style={{ marginTop: '0.25rem' }} onClick={() => { setTimeLoaded(false); setTimeVerses([]); setSelectedTimeVerse(null) }}>↺ Refresh for current time</button>
+              <button className="btn" style={{ marginTop: '0.25rem', width: '100%' }} onClick={() => { setTimeLoaded(false); setTimeVerses([]); setSelectedTimeVerse(null) }}>↺ Refresh for current time</button>
               <div style={{ marginTop: '0.875rem', borderTop: '0.5px solid var(--border)', paddingTop: '0.875rem' }}>
-                <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.5rem', fontStyle: 'italic' }}>
+                <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.75rem', fontStyle: 'italic', textAlign: 'center' }}>
                   Remember a moment from earlier? Search a specific time.
                 </p>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <input
-                    type="text"
-                    placeholder="e.g. 6:24"
-                    value={customTimeInput}
-                    onChange={e => setCustomTimeInput(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && searchCustomTime()}
-                    maxLength={5}
-                    style={{ flex: 1, marginBottom: 0, textAlign: 'center', fontSize: '1rem', letterSpacing: '0.1em' }}
-                  />
-                  <button
-                    className="btn btn-gold"
-                    onClick={searchCustomTime}
-                    disabled={customTimeLoading}
-                    style={{ flexShrink: 0, padding: '0 1rem' }}
-                  >
-                    {customTimeLoading ? '...' : 'Find'}
-                  </button>
-                </div>
+                <input
+                  type="text"
+                  placeholder="Enter time — e.g. 6:24"
+                  value={customTimeInput}
+                  onChange={e => setCustomTimeInput(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && searchCustomTime()}
+                  maxLength={5}
+                  style={{ width: '100%', marginBottom: 8, textAlign: 'center', fontSize: '1.1rem', letterSpacing: '0.1em' }}
+                />
+                <button
+                  className="btn btn-gold"
+                  onClick={searchCustomTime}
+                  disabled={customTimeLoading}
+                  style={{ width: '100%' }}
+                >
+                  {customTimeLoading ? 'Searching...' : '🕐 Find verses for this time'}
+                </button>
               </div>
             </div>
           )}
