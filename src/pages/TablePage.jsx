@@ -223,6 +223,26 @@ export default function TablePage({ onLeaveTable }) {
     </div>
   )
 
+  // No group yet — guide them to Settings
+  if (!group) return (
+    <div className="loading-wrap" style={{ flex: 1, padding: '2rem', textAlign: 'center' }}>
+      <div style={{ fontSize: '2.5rem', marginBottom: '1.25rem' }}>✝️</div>
+      <p style={{ fontFamily: 'Lora, serif', fontSize: '1.2rem', color: 'var(--white)', marginBottom: '0.75rem', lineHeight: 1.5 }}>
+        The table is set.<br />You just need a circle.
+      </p>
+      <p style={{ fontSize: '13px', color: 'var(--silver)', lineHeight: 1.7, marginBottom: '1.5rem', fontStyle: 'italic' }}>
+        Dinner with Jesus is better together. Create your dinner circle in Settings and invite your family — then come back to the table.
+      </p>
+      <button
+        className="btn btn-gold"
+        style={{ width: '100%', maxWidth: 320 }}
+        onClick={() => window.dispatchEvent(new CustomEvent('dwj-go-to-settings'))}
+      >
+        ⚙️ Set up my dinner circle
+      </button>
+    </div>
+  )
+
   if (error) return (
     <div className="loading-wrap" style={{ flex: 1 }}>
       <p style={{ color: '#E57373', fontSize: '14px', textAlign: 'center', padding: '1rem' }}>{error}</p>
