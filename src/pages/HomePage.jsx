@@ -125,6 +125,9 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
   const [verseLocked, setVerseLocked] = useState(false)
   const [lockingVerse, setLockingVerse] = useState(false)
 
+  const [customTimeInput, setCustomTimeInput] = useState('')
+  const [customTimeLoading, setCustomTimeLoading] = useState(false)
+
   const [selectedFeeling, setSelectedFeeling] = useState(null)
   const [feelingVerse, setFeelingVerse] = useState(null)
   const [feelingVerseIdx, setFeelingVerseIdx] = useState(0)
@@ -222,6 +225,38 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
       setTimeLoaded(true)
     } catch (err) {}
     setTimeLoading(false)
+  }
+
+  async function searchCustomTime() {
+    const input = customTimeInput.trim()
+    if (!input) return
+    // Parse h:mm or h format
+    const parts = input.split(':')
+    const h = parseInt(parts[0], 10)
+    const m = parts[1] !== undefined ? parseInt(parts[1], 10) : 0
+    if (isNaN(h) || isNaN(m) || h < 1 || h > 12 || m < 0 || m > 59) {
+      showToast('Enter a valid time like 6:24 or 11:00')
+      return
+    }
+    setCustomTimeLoading(true)
+    try {
+      const { data, error } = await supabase
+        .from('bible_verses')
+        .select('id, book, book_abbr, chapter, verse, text_web')
+        .eq('chapter', h)
+        .eq('verse', m)
+        .order('book_order')
+      if (error) throw error
+      setTimeVerses(data || [])
+      setTimeLoaded(true)
+      setCustomTimeInput('')
+      if (!data || data.length === 0) {
+        showToast(`No verses found for ${h}:${m.toString().padStart(2,'0')}`)
+      }
+    } catch (err) {
+      showToast('Could not search. Try again.')
+    }
+    setCustomTimeLoading(false)
   }
 
   async function selectFeeling(key) {
@@ -361,6 +396,22 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
                 No verses found for {currentTime}.<br /><span style={{ color: 'var(--gold)', fontStyle: 'italic' }}>Try again at a different moment.</span>
               </p>
               <button className="btn" onClick={() => { setTimeLoaded(false); setTimeVerses([]) }}>Try current time</button>
+              <div style={{ marginTop: '0.875rem' }}>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input
+                    type="text"
+                    placeholder="e.g. 6:24"
+                    value={customTimeInput}
+                    onChange={e => setCustomTimeInput(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && searchCustomTime()}
+                    maxLength={5}
+                    style={{ flex: 1, marginBottom: 0, textAlign: 'center', fontSize: '1rem', letterSpacing: '0.1em' }}
+                  />
+                  <button className="btn btn-gold" onClick={searchCustomTime} disabled={customTimeLoading} style={{ flexShrink: 0, padding: '0 1rem' }}>
+                    {customTimeLoading ? '...' : 'Find'}
+                  </button>
+                </div>
+              </div>
             </div>
           ) : (
             <div>
@@ -375,6 +426,30 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
                 </div>
               ))}
               <button className="btn" style={{ marginTop: '0.25rem' }} onClick={() => { setTimeLoaded(false); setTimeVerses([]); setSelectedTimeVerse(null) }}>↺ Refresh for current time</button>
+              <div style={{ marginTop: '0.875rem', borderTop: '0.5px solid var(--border)', paddingTop: '0.875rem' }}>
+                <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.5rem', fontStyle: 'italic' }}>
+                  Remember a moment from earlier? Search a specific time.
+                </p>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input
+                    type="text"
+                    placeholder="e.g. 6:24"
+                    value={customTimeInput}
+                    onChange={e => setCustomTimeInput(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && searchCustomTime()}
+                    maxLength={5}
+                    style={{ flex: 1, marginBottom: 0, textAlign: 'center', fontSize: '1rem', letterSpacing: '0.1em' }}
+                  />
+                  <button
+                    className="btn btn-gold"
+                    onClick={searchCustomTime}
+                    disabled={customTimeLoading}
+                    style={{ flexShrink: 0, padding: '0 1rem' }}
+                  >
+                    {customTimeLoading ? '...' : 'Find'}
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </div>
