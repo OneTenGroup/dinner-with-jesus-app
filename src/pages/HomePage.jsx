@@ -213,7 +213,7 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
     try {
       const { data, error } = await supabase
         .from('bible_verses')
-        .select('id, book, book_abbr, chapter, verse, text_kjv')
+        .select('id, book, book_abbr, chapter, verse, text_web')
         .eq('chapter', h)
         .eq('verse', m)
         .order('book_order')
@@ -371,7 +371,7 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
                 <div key={v.id} onClick={() => setSelectedTimeVerse(selectedTimeVerse?.id === v.id ? null : v)}
                   style={{ padding: '0.875rem', background: selectedTimeVerse?.id === v.id ? 'var(--gold-soft)' : 'var(--bg3)', borderRadius: 10, border: `0.5px solid ${selectedTimeVerse?.id === v.id ? 'var(--border-gold)' : 'var(--border)'}`, marginBottom: 8, cursor: 'pointer' }}>
                   <div style={{ fontSize: '11px', fontWeight: 500, color: 'var(--gold)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '0.35rem' }}>{v.book} {v.chapter}:{v.verse}</div>
-                  <div style={{ fontFamily: 'Lora, serif', fontSize: '0.88rem', fontStyle: 'italic', color: 'var(--white)', lineHeight: 1.7 }}>"{v.text_kjv}"</div>
+                  <div style={{ fontFamily: 'Lora, serif', fontSize: '0.88rem', fontStyle: 'italic', color: 'var(--white)', lineHeight: 1.7 }}>"{v.text_web}"</div>
                 </div>
               ))}
               <button className="btn" style={{ marginTop: '0.25rem' }} onClick={() => { setTimeLoaded(false); setTimeVerses([]); setSelectedTimeVerse(null) }}>↺ Refresh for current time</button>
@@ -400,6 +400,24 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: 'linear-gradient(90deg, var(--gold), transparent)' }} />
         <div style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>🍽️</div>
         <p style={{ fontFamily: 'Lora, serif', fontSize: '17px', color: 'var(--gold)', lineHeight: 1.7, fontStyle: 'italic', fontWeight: 600 }}>{conversationMsg}</p>
+      </div>
+
+      {/* Share the app */}
+      <div style={{ textAlign: 'center', marginBottom: '0.75rem' }}>
+        <button
+          onClick={() => {
+            const msg = `Check out Dinner with Jesus — one verse, one real conversation, one prayer at dinner. It's free and it's changing how families connect. flippingtables.ai 🙏`
+            if (navigator.share) {
+              navigator.share({ text: msg })
+            } else {
+              navigator.clipboard.writeText(msg)
+              showToast('Copied! Share it with someone. 🙏')
+            }
+          }}
+          style={{ background: 'none', border: 'none', color: 'var(--gold)', fontSize: '14px', cursor: 'pointer', fontFamily: 'Lora, serif', fontStyle: 'italic', textDecoration: 'underline', textUnderlineOffset: '3px' }}
+        >
+          🙏 Share Dinner with Jesus
+        </button>
       </div>
 
       {/* Bible Reader */}
