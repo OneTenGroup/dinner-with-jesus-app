@@ -54,7 +54,7 @@ async function lockVerseForGroup(groupId) {
 
 export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
   const { user, profile, signOut, updateProfile } = useAuth()
-  const { group, members, createGroup, joinGroup, leaveGroup } = useFamily()
+  const { group, members, createGroup, joinGroup, leaveGroup, removeMember } = useFamily()
 
   const [toast, setToast] = useState('')
   const [mode, setMode] = useState('none')
@@ -72,10 +72,27 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [accountSaving, setAccountSaving] = useState(false)
+  const [memberProfiles, setMemberProfiles] = useState([])
+  const [removeConfirm, setRemoveConfirm] = useState(null) // { id, name } of member pending removal
+  const [removing, setRemoving] = useState(false)
 
   useEffect(() => {
     checkVerseLocked()
+    loadMemberProfiles()
   }, [group])
+
+  async function loadMemberProfiles() {
+    if (!group?.id) { setMemberProfiles([]); return }
+    try {
+      const { data } = await supabase
+        .from('profiles')
+        .select('id, name')
+        .eq('group_id', group.id)
+      setMemberProfiles(data || [])
+    } catch (err) {
+      setMemberProfiles([])
+    }
+  }
 
   async function checkVerseLocked() {
     if (!group?.id) return
@@ -148,6 +165,20 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
       showToast('You have left the group.')
     }
     setLeaving(false)
+  }
+
+  async function handleRemoveMember() {
+    if (!removeConfirm) return
+    setRemoving(true)
+    const result = await removeMember(removeConfirm.id)
+    if (result.error) {
+      showToast(result.error)
+    } else {
+      showToast(`${removeConfirm.name} has been removed from the table.`)
+      await loadMemberProfiles()
+    }
+    setRemoveConfirm(null)
+    setRemoving(false)
   }
 
   function copyInviteCode() {
@@ -291,17 +322,63 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
 
           {/* Members */}
           <div style={{ marginBottom: '1rem', marginTop: '0.5rem' }}>
-            <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.5rem', fontWeight: 300 }}>At the table:</p>
-            {members.length > 0 ? (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {members.map(m => (
-                  <span key={m} style={{ fontSize: '12px', color: 'var(--cream)', background: 'var(--bg3)', border: '0.5px solid var(--border)', borderRadius: 999, padding: '3px 10px' }}>{m}</span>
-                ))}
+            <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.5rem', fontWeight: 300 }}>
+              At the table{group.isOwner ? ' — tap a name to remove' : ''}:
+            </p>
+            {memberProfiles.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {memberProfiles.map(m => {
+                  const isSelf = m.id === user.id
+                  const canRemove = group.isOwner && !isSelf
+                  return (
+                    <div
+                      key={m.id}
+                      onClick={() => canRemove && setRemoveConfirm({ id: m.id, name: m.name })}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        fontSize: '12px',
+                        color: 'var(--cream)',
+                        background: 'var(--bg3)',
+                        border: '0.5px solid var(--border)',
+                        borderRadius: 8,
+                        padding: '8px 12px',
+                        cursor: canRemove ? 'pointer' : 'default'
+                      }}
+                    >
+                      <span>{m.name}{isSelf ? ' (you)' : ''}</span>
+                      {canRemove && (
+                        <span style={{ color: '#E57373', fontSize: '11px' }}>Remove</span>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             ) : (
               <p style={{ fontSize: '12px', color: 'var(--silver)', fontStyle: 'italic' }}>Just you so far. Share your code to invite others.</p>
             )}
           </div>
+
+          {/* Remove confirmation */}
+          {removeConfirm && (
+            <div style={{ background: 'var(--bg3)', borderRadius: 10, padding: '0.875rem', marginBottom: '0.875rem', border: '0.5px solid rgba(229,115,115,0.3)', textAlign: 'center' }}>
+              <p style={{ fontSize: '13px', color: 'var(--white)', marginBottom: '0.75rem' }}>
+                Remove {removeConfirm.name} from {group.name}? They'll need a new invite code to rejoin.
+              </p>
+              <div className="btn-row">
+                <button className="btn" onClick={() => setRemoveConfirm(null)} style={{ flex: 1 }}>Cancel</button>
+                <button
+                  className="btn"
+                  onClick={handleRemoveMember}
+                  disabled={removing}
+                  style={{ flex: 1, color: '#E57373', borderColor: 'rgba(229,115,115,0.2)' }}
+                >
+                  {removing ? 'Removing...' : 'Yes, remove'}
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Lock verse + instructions */}
           <div style={{ background: 'var(--bg3)', borderRadius: 10, padding: '0.875rem', marginBottom: '0.875rem', border: '0.5px solid var(--border)' }}>
