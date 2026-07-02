@@ -375,88 +375,54 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
       {/* Time Verse */}
       <div style={sectionStyle}>
         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: 'linear-gradient(90deg, var(--gold), transparent)' }} />
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 8, background: 'var(--gold-soft)', border: '0.5px solid var(--border-gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem', flexShrink: 0 }}>🕐</div>
-            <div>
-              <span style={sectionTitleStyle}>Your verse for this moment</span>
-              <p style={{ ...sectionSubStyle, marginBottom: 0, fontSize: '12px' }}>God speaks through Scripture — even in the numbers</p>
-            </div>
-          </div>
-          <div style={{ fontFamily: 'Lora, serif', fontSize: '1.4rem', fontWeight: 600, color: 'var(--gold)', letterSpacing: '0.05em', flexShrink: 0, marginLeft: 8 }}>{currentTime}</div>
-        </div>
-        <div style={{ marginTop: '1rem' }}>
-          {!timeLoaded ? (
-            <button className="btn btn-gold" onClick={loadTimeVerses} disabled={timeLoading} style={{ width: '100%', fontSize: '14px', padding: '12px' }}>
-              {timeLoading ? 'Finding your verses...' : `Find verses for ${currentTime}`}
+        <span style={sectionTitleStyle}>Your verse for this moment</span>
+        <p style={{ fontSize: '13px', color: 'var(--silver)', lineHeight: 1.7, marginBottom: '1rem', fontStyle: 'italic' }}>
+          What time was it when everything changed?
+        </p>
+        <p style={{ fontSize: '12px', color: 'var(--silver2)', lineHeight: 1.6, marginBottom: '1rem', fontWeight: 300 }}>
+          Every chapter and verse in the Bible has a number. So does every moment of your day. Enter a time that moved you — and find the verse that was waiting there.
+        </p>
+        <input
+          type="text"
+          placeholder="Enter a time — e.g. 6:24"
+          value={customTimeInput}
+          onChange={e => setCustomTimeInput(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && searchCustomTime()}
+          maxLength={5}
+          style={{ width: '100%', marginBottom: 8, textAlign: 'center', fontSize: '1.2rem', letterSpacing: '0.15em' }}
+        />
+        <button
+          className="btn btn-gold"
+          onClick={searchCustomTime}
+          disabled={customTimeLoading}
+          style={{ width: '100%', marginBottom: timeVerses.length > 0 ? '1rem' : 0 }}
+        >
+          {customTimeLoading ? 'Searching...' : '🕐 Find my verse'}
+        </button>
+
+        {/* Results */}
+        {timeLoaded && timeVerses.length === 0 && (
+          <p style={{ fontSize: '13px', color: 'var(--silver)', textAlign: 'center', fontStyle: 'italic', marginTop: '0.75rem' }}>
+            No verses found for that time. Try another moment.
+          </p>
+        )}
+        {timeVerses.length > 0 && (
+          <div>
+            <p style={{ fontSize: '11px', letterSpacing: '0.15em', textTransform: 'uppercase', color: 'var(--silver)', marginBottom: '0.75rem' }}>
+              {timeVerses.length} verse{timeVerses.length !== 1 ? 's' : ''} across Scripture
+            </p>
+            {timeVerses.map(v => (
+              <div key={v.id} onClick={() => setSelectedTimeVerse(selectedTimeVerse?.id === v.id ? null : v)}
+                style={{ padding: '0.875rem', background: selectedTimeVerse?.id === v.id ? 'var(--gold-soft)' : 'var(--bg3)', borderRadius: 10, border: `0.5px solid ${selectedTimeVerse?.id === v.id ? 'var(--border-gold)' : 'var(--border)'}`, marginBottom: 8, cursor: 'pointer' }}>
+                <div style={{ fontSize: '11px', fontWeight: 500, color: 'var(--gold)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '0.35rem' }}>{v.book} {v.chapter}:{v.verse}</div>
+                <div style={{ fontFamily: 'Lora, serif', fontSize: '0.88rem', fontStyle: 'italic', color: 'var(--white)', lineHeight: 1.7 }}>"{v.text_web}"</div>
+              </div>
+            ))}
+            <button className="btn" style={{ width: '100%', marginTop: '0.25rem' }} onClick={() => { setTimeLoaded(false); setTimeVerses([]); setSelectedTimeVerse(null); setCustomTimeInput('') }}>
+              ↺ Search another time
             </button>
-          ) : timeVerses.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '0.75rem 0' }}>
-              <p style={{ fontSize: '13px', color: 'var(--silver)', lineHeight: 1.7, marginBottom: '0.75rem' }}>
-                No verses found for {currentTime}.<br /><span style={{ color: 'var(--gold)', fontStyle: 'italic' }}>Try again at a different moment.</span>
-              </p>
-              <button className="btn" style={{ width: '100%' }} onClick={() => { setTimeLoaded(false); setTimeVerses([]) }}>Try current time</button>
-              <div style={{ marginTop: '0.875rem', borderTop: '0.5px solid var(--border)', paddingTop: '0.875rem' }}>
-                <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.75rem', fontStyle: 'italic', textAlign: 'center' }}>
-                  Remember a moment from earlier? Search a specific time.
-                </p>
-                <input
-                  type="text"
-                  placeholder="Enter time — e.g. 6:24"
-                  value={customTimeInput}
-                  onChange={e => setCustomTimeInput(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && searchCustomTime()}
-                  maxLength={5}
-                  style={{ width: '100%', marginBottom: 8, textAlign: 'center', fontSize: '1.1rem', letterSpacing: '0.1em' }}
-                />
-                <button
-                  className="btn btn-gold"
-                  onClick={searchCustomTime}
-                  disabled={customTimeLoading}
-                  style={{ width: '100%' }}
-                >
-                  {customTimeLoading ? 'Searching...' : '🕐 Find verses for this time'}
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div>
-              <p style={{ fontSize: '11px', letterSpacing: '0.15em', textTransform: 'uppercase', color: 'var(--silver)', marginBottom: '0.75rem' }}>
-                {timeVerses.length} verse{timeVerses.length !== 1 ? 's' : ''} across Scripture for {currentTime}
-              </p>
-              {timeVerses.map(v => (
-                <div key={v.id} onClick={() => setSelectedTimeVerse(selectedTimeVerse?.id === v.id ? null : v)}
-                  style={{ padding: '0.875rem', background: selectedTimeVerse?.id === v.id ? 'var(--gold-soft)' : 'var(--bg3)', borderRadius: 10, border: `0.5px solid ${selectedTimeVerse?.id === v.id ? 'var(--border-gold)' : 'var(--border)'}`, marginBottom: 8, cursor: 'pointer' }}>
-                  <div style={{ fontSize: '11px', fontWeight: 500, color: 'var(--gold)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '0.35rem' }}>{v.book} {v.chapter}:{v.verse}</div>
-                  <div style={{ fontFamily: 'Lora, serif', fontSize: '0.88rem', fontStyle: 'italic', color: 'var(--white)', lineHeight: 1.7 }}>"{v.text_web}"</div>
-                </div>
-              ))}
-              <button className="btn" style={{ marginTop: '0.25rem', width: '100%' }} onClick={() => { setTimeLoaded(false); setTimeVerses([]); setSelectedTimeVerse(null) }}>↺ Refresh for current time</button>
-              <div style={{ marginTop: '0.875rem', borderTop: '0.5px solid var(--border)', paddingTop: '0.875rem' }}>
-                <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.75rem', fontStyle: 'italic', textAlign: 'center' }}>
-                  Remember a moment from earlier? Search a specific time.
-                </p>
-                <input
-                  type="text"
-                  placeholder="Enter time — e.g. 6:24"
-                  value={customTimeInput}
-                  onChange={e => setCustomTimeInput(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && searchCustomTime()}
-                  maxLength={5}
-                  style={{ width: '100%', marginBottom: 8, textAlign: 'center', fontSize: '1.1rem', letterSpacing: '0.1em' }}
-                />
-                <button
-                  className="btn btn-gold"
-                  onClick={searchCustomTime}
-                  disabled={customTimeLoading}
-                  style={{ width: '100%' }}
-                >
-                  {customTimeLoading ? 'Searching...' : '🕐 Find verses for this time'}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Feelings Grid */}
