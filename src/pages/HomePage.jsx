@@ -247,7 +247,9 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
         .eq('verse', m)
         .order('book_order')
       if (error) throw error
-      setTimeVerses(data || [])
+      // Randomly pick up to 3 so it feels personal not overwhelming
+      const shuffled = (data || []).sort(() => Math.random() - 0.5).slice(0, 3)
+      setTimeVerses(shuffled)
       setTimeLoaded(true)
       setCustomTimeInput('')
       if (!data || data.length === 0) {
