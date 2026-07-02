@@ -72,27 +72,27 @@ export default function App() {
   const [atTable, setAtTable] = useState(false)
   const [stats, setStats] = useState({ conversations: 0 })
   const [onboardingDone, setOnboardingDone] = useState(false)
-  const [showKendyl, setShowKendyl] = useState(!hasSeenTodaysScene())
+  const [showKendyl, setShowKendyl] = useState(false)
+  const [kendylDismissed, setKendylDismissed] = useState(false)
   const [isPasswordReset, setIsPasswordReset] = useState(false)
   const [showAdmin, setShowAdmin] = useState(false)
-  const [appReady, setAppReady] = useState(false)
 
   const isAdmin = user?.id === ADMIN_USER_ID
+  const appReady = !loading && !familyLoading
 
   useEffect(() => {
     const hash = window.location.hash
     if (hash && hash.includes('type=recovery')) {
       setIsPasswordReset(true)
-      setShowKendyl(false)
     }
   }, [])
 
-  // Mark app as ready once both auth and family have resolved
+  // Show KendylScene once app is ready and user is logged in
   useEffect(() => {
-    if (!loading && !familyLoading) {
-      setAppReady(true)
+    if (appReady && user && !isPasswordReset && !hasSeenTodaysScene() && !kendylDismissed) {
+      setShowKendyl(true)
     }
-  }, [loading, familyLoading])
+  }, [appReady, user])
 
   // Load real conversation count
   useEffect(() => {
@@ -109,6 +109,12 @@ export default function App() {
     loadStats()
   }, [user])
 
+  useEffect(() => {
+    function handleGoToSettings() { setActiveTab('settings') }
+    window.addEventListener('dwj-go-to-settings', handleGoToSettings)
+    return () => window.removeEventListener('dwj-go-to-settings', handleGoToSettings)
+  }, [])
+
   if (isPasswordReset) {
     return (
       <ResetPasswordScreen onDone={() => {
@@ -118,22 +124,12 @@ export default function App() {
     )
   }
 
-  // Show KendylScene immediately on fresh open — auth loads in background
-  // The typing animation takes 3-5 seconds, perfectly masking the cold start
-  if (showKendyl) {
-    return (
-      <KendylScene onEnter={() => {
-        setShowKendyl(false)
-      }} />
-    )
-  }
-
-  // After KendylScene, wait for auth + family if not ready yet
+  // Wait for auth + family to fully resolve
   if (!appReady) {
     return (
       <div style={{ background: 'var(--bg)', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '1rem' }}>
         <div style={{ fontSize: '2rem', animation: 'pulse 2s ease-in-out infinite' }}>✝️</div>
-        <p style={{ color: 'var(--silver)', fontSize: '14px' }}>Setting the table...</p>
+        <p style={{ color: 'var(--silver)', fontSize: '14px' }}>Dinner with Jesus</p>
         <style>{`@keyframes pulse { 0%,100%{opacity:0.4} 50%{opacity:1} }`}</style>
       </div>
     )
@@ -145,11 +141,15 @@ export default function App() {
     return <OnboardingPage onComplete={() => setOnboardingDone(true)} />
   }
 
-  useEffect(() => {
-    function handleGoToSettings() { setActiveTab('settings') }
-    window.addEventListener('dwj-go-to-settings', handleGoToSettings)
-    return () => window.removeEventListener('dwj-go-to-settings', handleGoToSettings)
-  }, [])
+  // Show KendylScene AFTER app is ready — no blue screen
+  if (showKendyl) {
+    return (
+      <KendylScene onEnter={() => {
+        setShowKendyl(false)
+        setKendylDismissed(true)
+      }} />
+    )
+  }
 
   function goToTable() {
     setActiveTab('table')
