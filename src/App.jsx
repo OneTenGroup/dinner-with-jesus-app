@@ -72,9 +72,10 @@ export default function App() {
   const [atTable, setAtTable] = useState(false)
   const [stats, setStats] = useState({ conversations: 0 })
   const [onboardingDone, setOnboardingDone] = useState(false)
-  const [showKendyl, setShowKendyl] = useState(false)
+  const [showKendyl, setShowKendyl] = useState(!hasSeenTodaysScene())
   const [isPasswordReset, setIsPasswordReset] = useState(false)
   const [showAdmin, setShowAdmin] = useState(false)
+  const [appReady, setAppReady] = useState(false)
 
   const isAdmin = user?.id === ADMIN_USER_ID
 
@@ -82,14 +83,18 @@ export default function App() {
     const hash = window.location.hash
     if (hash && hash.includes('type=recovery')) {
       setIsPasswordReset(true)
+      setShowKendyl(false)
     }
   }, [])
 
+  // Mark app as ready once both auth and family have resolved
   useEffect(() => {
-    if (user && !isPasswordReset && !hasSeenTodaysScene()) setShowKendyl(true)
-  }, [user])
+    if (!loading && !familyLoading) {
+      setAppReady(true)
+    }
+  }, [loading, familyLoading])
 
-  // Load real conversation count from verse_history
+  // Load real conversation count
   useEffect(() => {
     if (!user) return
     async function loadStats() {
@@ -113,16 +118,22 @@ export default function App() {
     )
   }
 
-  // CRITICAL: Always wait for BOTH auth and family to fully resolve
-  // before rendering the app shell. No cached-user shortcut here —
-  // that fast-path was the source of the cold-start race condition
-  // that let TablePage fetch a verse before group.id existed,
-  // overwriting the locked verse for the whole group.
-  if (loading || familyLoading) {
+  // Show KendylScene immediately on fresh open — auth loads in background
+  // The typing animation takes 3-5 seconds, perfectly masking the cold start
+  if (showKendyl) {
+    return (
+      <KendylScene onEnter={() => {
+        setShowKendyl(false)
+      }} />
+    )
+  }
+
+  // After KendylScene, wait for auth + family if not ready yet
+  if (!appReady) {
     return (
       <div style={{ background: 'var(--bg)', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '1rem' }}>
         <div style={{ fontSize: '2rem', animation: 'pulse 2s ease-in-out infinite' }}>✝️</div>
-        <p style={{ color: 'var(--silver)', fontSize: '14px' }}>Dinner with Jesus</p>
+        <p style={{ color: 'var(--silver)', fontSize: '14px' }}>Setting the table...</p>
         <style>{`@keyframes pulse { 0%,100%{opacity:0.4} 50%{opacity:1} }`}</style>
       </div>
     )
@@ -132,14 +143,6 @@ export default function App() {
 
   if (user && profile && !profile.onboarding_complete && !onboardingDone) {
     return <OnboardingPage onComplete={() => setOnboardingDone(true)} />
-  }
-
-  if (showKendyl) {
-    return <KendylScene onEnter={() => setShowKendyl(false)} />
-  }
-
-  function onDiscussed() {
-    setStats(s => ({ ...s, conversations: s.conversations + 1 }))
   }
 
   function goToTable() {
