@@ -501,6 +501,25 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
         <div style={{ fontSize: '11px', color: 'var(--silver)', opacity: 0.6 }}>Built by <span style={{ color: 'var(--gold)' }}>OneTen Group</span> · onetengroup.ai</div>
       </div>
 
+      {/* Share the app */}
+      <div style={{ marginBottom: '0.75rem' }}>
+        <button
+          className="btn"
+          style={{ color: 'var(--gold)', borderColor: 'var(--border-gold)', background: 'var(--gold-soft)', width: '100%' }}
+          onClick={() => {
+            const msg = `Check out Dinner with Jesus — one verse, one real conversation, one prayer at dinner. It's free and it's changing how families connect. flippingtables.ai 🙏`
+            if (navigator.share) {
+              navigator.share({ text: msg })
+            } else {
+              navigator.clipboard.writeText(msg)
+              showToast('Copied! Share it with someone. 🙏')
+            }
+          }}
+        >
+          🙏 Share Dinner with Jesus
+        </button>
+      </div>
+
       {/* Feedback */}
       <div style={{ marginBottom: '0.75rem' }}>
         <a href="mailto:steve@onetengroup.ai?subject=DWJ Feedback&body=Hi Steve,%0D%0A%0D%0AHere's my feedback on Dinner with Jesus:%0D%0A%0D%0A" style={{ display: 'block', textDecoration: 'none' }}>
