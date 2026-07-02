@@ -145,6 +145,12 @@ export default function App() {
     return <OnboardingPage onComplete={() => setOnboardingDone(true)} />
   }
 
+  useEffect(() => {
+    function handleGoToSettings() { setActiveTab('settings') }
+    window.addEventListener('dwj-go-to-settings', handleGoToSettings)
+    return () => window.removeEventListener('dwj-go-to-settings', handleGoToSettings)
+  }, [])
+
   function goToTable() {
     setActiveTab('table')
     setAtTable(true)
