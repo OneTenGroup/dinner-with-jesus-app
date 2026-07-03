@@ -76,9 +76,25 @@ export default function App() {
   const [kendylDismissed, setKendylDismissed] = useState(false)
   const [isPasswordReset, setIsPasswordReset] = useState(false)
   const [showAdmin, setShowAdmin] = useState(false)
+  const [appReady, setAppReady] = useState(false)
 
   const isAdmin = user?.id === ADMIN_USER_ID
-  const appReady = !loading && !familyLoading
+
+  // Safety timeout — never hang forever on cold start
+  // Forces app to show after 5 seconds no matter what
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      setAppReady(true)
+    }, 5000)
+    return () => clearTimeout(timeout)
+  }, [])
+
+  // Mark app ready when both auth and family have resolved
+  useEffect(() => {
+    if (!loading && !familyLoading) {
+      setAppReady(true)
+    }
+  }, [loading, familyLoading])
 
   useEffect(() => {
     const hash = window.location.hash
@@ -124,7 +140,7 @@ export default function App() {
     )
   }
 
-  // Wait for auth + family to fully resolve
+  // Wait for app to be ready — max 5 seconds
   if (!appReady) {
     return (
       <div style={{ background: 'var(--bg)', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '1rem' }}>
@@ -141,7 +157,7 @@ export default function App() {
     return <OnboardingPage onComplete={() => setOnboardingDone(true)} />
   }
 
-  // Show KendylScene AFTER app is ready — no blue screen
+  // Show KendylScene after app is ready — no blue screen
   if (showKendyl) {
     return (
       <KendylScene onEnter={() => {
