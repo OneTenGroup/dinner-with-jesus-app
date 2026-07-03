@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useAuth } from './context/AuthContext'
 import { useFamily } from './hooks/useFamily'
 import { supabase } from './lib/supabase'
+import { track } from './lib/analytics'
 import AuthPage from './pages/AuthPage'
 import OnboardingPage from './pages/OnboardingPage'
 import HomePage from './pages/HomePage'
@@ -113,6 +114,7 @@ export default function App() {
   // Load real conversation count
   useEffect(() => {
     if (!user) return
+    track('app_opened')
     async function loadStats() {
       try {
         const { count } = await supabase
@@ -161,6 +163,7 @@ export default function App() {
   if (showKendyl) {
     return (
       <KendylScene onEnter={() => {
+        track('kendyl_dismissed')
         setShowKendyl(false)
         setKendylDismissed(true)
       }} />
@@ -226,6 +229,7 @@ export default function App() {
               className={`nav-item ${activeTab === t.id ? 'active' : ''}`}
               onClick={() => {
                 setActiveTab(t.id)
+                track('tab_opened', { tab: t.id })
                 if (t.id === 'table') setAtTable(true)
               }}
             >
