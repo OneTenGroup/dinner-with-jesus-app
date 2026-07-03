@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useFamily } from '../hooks/useFamily'
 import { supabase } from '../lib/supabase'
+import { track } from '../lib/analytics'
 
 const BLESSINGS = [
   "Go now — and carry what happened at this table into the rest of your night. I'll be here tomorrow. Same time. Same table. Don't be late. 🙏",
@@ -65,6 +66,7 @@ export default function TablePage({ onLeaveTable }) {
             .single()
           if (verseData) {
             setVerse(verseData)
+            track('verse_loaded', { verse_ref: verseData.verse_ref, source: 'sticky_note' })
             const { data: historyData } = await supabase
               .from('verse_history')
               .select('id')
@@ -129,6 +131,7 @@ export default function TablePage({ onLeaveTable }) {
         discussed_at: new Date().toISOString()
       }, { onConflict: 'dinner_verse_id,user_id' })
       setDiscussed(true)
+      track('discussion_marked', { verse_ref: verse.verse_ref })
       showToast('Beautiful conversation tonight. 🙏')
     } catch (err) {
       showToast('Could not save. Try again.')
@@ -156,6 +159,7 @@ export default function TablePage({ onLeaveTable }) {
     const justPrayed = members[prayerIdx % members.length]
     const upNext = members[newIdx % members.length]
     if (members.length <= 1 || newIdx >= members.length) {
+      track('prayer_completed', { member_count: members.length })
       showToast(`${justPrayed || 'You'} prayed. Everyone has prayed tonight. 🙏`)
     } else {
       showToast(`${justPrayed} prayed. ${upNext} is up next. 🙏`)
@@ -184,6 +188,7 @@ export default function TablePage({ onLeaveTable }) {
           family_id: group.id
         })
       }
+      track('journal_saved', { target: noteTarget })
       showToast('Saved. ✓')
       setNoteText('')
     } catch (err) {
@@ -199,6 +204,7 @@ export default function TablePage({ onLeaveTable }) {
   }
 
   function confirmLeave() {
+    track('table_left')
     setShowBlessing(false)
     if (onLeaveTable) onLeaveTable()
   }
