@@ -499,6 +499,11 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
         <div style={{ fontSize: '11px', color: 'var(--gold)', marginTop: '0.5rem' }}>Colossians 1:10</div>
         <div style={{ height: '0.5px', background: 'var(--border)', margin: '0.875rem 0' }} />
         <div style={{ fontSize: '11px', color: 'var(--silver)', opacity: 0.6 }}>Built by <span style={{ color: 'var(--gold)' }}>OneTen Group</span> · onetengroup.ai</div>
+        <div style={{ height: '0.5px', background: 'var(--border)', margin: '0.875rem 0' }} />
+        <div style={{ display: 'flex', gap: 16, justifyContent: 'center' }}>
+          <a href="/privacy-policy" target="_blank" rel="noreferrer" style={{ fontSize: '11px', color: 'var(--gold)', textDecoration: 'underline', textUnderlineOffset: '3px' }}>Privacy Policy</a>
+          <a href="/terms-of-service" target="_blank" rel="noreferrer" style={{ fontSize: '11px', color: 'var(--gold)', textDecoration: 'underline', textUnderlineOffset: '3px' }}>Terms of Service</a>
+        </div>
       </div>
 
       {/* Share the app */}
