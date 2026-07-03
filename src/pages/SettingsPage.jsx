@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useFamily } from '../hooks/useFamily'
 import { supabase } from '../lib/supabase'
+import { track } from '../lib/analytics'
 
 const FAITH_LABELS = {
   1: 'Gentle, open-ended questions',
@@ -114,6 +115,7 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
       showToast("Tonight's verse is already set. 🙏")
       setVerseLocked(true)
     } else if (result.success) {
+      track('verse_locked')
       showToast("Tonight's verse is set! Now share your invite code. 🙏")
       setVerseLocked(true)
     } else {
@@ -136,6 +138,7 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
     } else {
       setNewGroupName('')
       setMode('none')
+      track('group_created')
       showToast(`${result.group.name} is ready! 🙏`)
     }
     setCreating(false)
@@ -150,6 +153,7 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
     } else {
       setJoinCode('')
       setMode('none')
+      track('group_joined')
       showToast(`Welcome to ${result.groupName}! 🙏`)
     }
     setJoining(false)
