@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Routes, Route } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import { useFamily } from './hooks/useFamily'
 import { supabase } from './lib/supabase'
@@ -12,6 +13,7 @@ import JournalPage from './pages/JournalPage'
 import SettingsPage from './pages/SettingsPage'
 import KendylScene, { hasSeenTodaysScene } from './components/KendylScene'
 import AdminPage from './pages/AdminPage'
+import GuestTablePage from './pages/GuestTablePage'
 
 const ADMIN_USER_ID = '28356e7e-067c-49a8-81a2-095576c432a7'
 
@@ -139,6 +141,15 @@ export default function App() {
         setIsPasswordReset(false)
         window.history.replaceState(null, '', '/')
       }} />
+    )
+  }
+
+  // Guest table route — no auth required
+  if (window.location.pathname.startsWith('/table/')) {
+    return (
+      <Routes>
+        <Route path="/table/:inviteCode" element={<GuestTablePage />} />
+      </Routes>
     )
   }
 
