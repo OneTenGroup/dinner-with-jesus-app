@@ -435,7 +435,7 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
                 await updateProfile({ onboarding_complete: false })
                 window.location.reload()
               }}
-              style={{ background: 'none', border: 'none', color: 'var(--silver)', fontSize: '12px', cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: '3px', opacity: 0.6 }}
+              style={{ background: 'none', border: 'none', color: 'var(--gold)', fontSize: '14px', fontWeight: 600, cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: '3px' }}
             >
               Need help? Restart the setup guide
             </button>
