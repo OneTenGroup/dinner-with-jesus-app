@@ -287,7 +287,7 @@ export default function OnboardingPage({ onComplete }) {
           {circleMode === 'create' && (
             <div>
               <p style={{ fontSize: '13px', color: 'var(--white)', marginBottom: '0.25rem', fontWeight: 500 }}>Name your circle</p>
-              <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.875rem' }}>Usually your family name — e.g. "The Korbars"</p>
+              <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.875rem' }}>Usually your family name — e.g. "The Baxter's"</p>
               <input
                 type="text"
                 placeholder="The ___ Family"
