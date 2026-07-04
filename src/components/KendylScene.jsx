@@ -333,7 +333,7 @@ export default function KendylScene({ onEnter }) {
       {/* Jesus image */}
       <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
         <img
-          src="/jesus-at-table.png"
+          src="https://flippingtables.ai/jesus-at-table.png"
           alt="Jesus at the dinner table, welcoming you"
           style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center top' }}
         />
