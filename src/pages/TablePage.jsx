@@ -262,9 +262,28 @@ export default function TablePage({ onLeaveTable }) {
       {/* Who's at the table */}
       <div style={{ ...cardBase, background: 'var(--bg3)' }}>
         <div style={goldAccent} />
-        <span style={{ ...sectionTitle, marginBottom: '0.5rem' }}>
-          {group ? group.name : 'At the Table Tonight'}
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+          <span style={{ ...sectionTitle, marginBottom: 0 }}>
+            {group ? group.name : 'At the Table Tonight'}
+          </span>
+          {group && (
+            <button
+              onClick={() => {
+                const link = `${window.location.origin}/table/${group.invite_code}`
+                const msg = `Join us at the table tonight!\n\nTap this link to follow along with Dinner with Jesus — no account needed:\n\n${link}\n\n🙏`
+                if (navigator.share) {
+                  navigator.share({ text: msg })
+                } else {
+                  navigator.clipboard.writeText(link)
+                  showToast('Guest link copied! 🙏')
+                }
+              }}
+              style={{ background: 'none', border: '0.5px solid var(--border-gold)', borderRadius: 6, color: 'var(--gold)', fontSize: '11px', padding: '4px 10px', cursor: 'pointer' }}
+            >
+              🔗 Invite guest
+            </button>
+          )}
+        </div>
         {members.length > 0 ? (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             {members.map(m => (
