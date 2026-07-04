@@ -427,6 +427,19 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
               </div>
             </div>
           )}
+
+          {/* Setup guide — always visible */}
+          <p style={{ textAlign: 'center', marginTop: '1rem' }}>
+            <button
+              onClick={async () => {
+                await updateProfile({ onboarding_complete: false })
+                window.location.reload()
+              }}
+              style={{ background: 'none', border: 'none', color: 'var(--silver)', fontSize: '12px', cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: '3px', opacity: 0.6 }}
+            >
+              Need help? Restart the setup guide
+            </button>
+          </p>
         </div>
       ) : (
         <div className="card" style={{ marginBottom: '1.5rem' }}>
