@@ -437,6 +437,17 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
                 <button className="btn btn-gold" onClick={() => setMode('create')}>🍽️ Start a circle</button>
                 <button className="btn" onClick={() => setMode('join')}>🔑 Join a circle</button>
               </div>
+              <p style={{ textAlign: 'center', marginTop: '1rem' }}>
+                <button
+                  onClick={async () => {
+                    await updateProfile({ onboarding_complete: false })
+                    window.location.reload()
+                  }}
+                  style={{ background: 'none', border: 'none', color: 'var(--silver)', fontSize: '12px', cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: '3px', opacity: 0.6 }}
+                >
+                  Need help? Restart the setup guide
+                </button>
+              </p>
             </>
           )}
           {mode === 'create' && (
