@@ -58,7 +58,7 @@ body {
 /* ── Cards — gold border throughout ── */
 .card {
   background: var(--bg2);
-  border: 1.5px solid rgba(201,168,76,0.5);
+  border: 1.5px solid #C9A84C;
   border-radius: 12px;
   padding: 1.25rem;
   margin-bottom: 1.25rem;
