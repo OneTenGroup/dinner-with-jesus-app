@@ -2,7 +2,7 @@
   "name": "Dinner with Jesus",
   "short_name": "DWJ",
   "description": "Not a ritual. A relationship. Faith conversations for every family table.",
-  "start_url": "/",
+  "start_url": "/app",
   "display": "standalone",
   "background_color": "#0D1829",
   "theme_color": "#0D1829",
