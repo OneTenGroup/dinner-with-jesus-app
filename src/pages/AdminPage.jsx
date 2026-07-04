@@ -1,87 +1,137 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 
-const ADMIN_USER_ID = '28356e7e-067c-49a8-81a2-095576c432a7'
-
 export default function AdminPage({ onClose }) {
-  const [stats, setStats] = useState({ users: 0, families: 0, members: 0 })
+  const [activeTab, setActiveTab] = useState('overview')
+  const [loading, setLoading] = useState(true)
+  const [toast, setToast] = useState('')
+
+  // Data
   const [users, setUsers] = useState([])
-  const [families, setFamilies] = useState([])
+  const [groups, setGroups] = useState([])
+  const [verses, setVerses] = useState([])
+  const [analyticsData, setAnalyticsData] = useState([])
+  const [dailyActive, setDailyActive] = useState([])
+  const [eventCounts, setEventCounts] = useState([])
   const [announcement, setAnnouncement] = useState('')
   const [activeAnnouncement, setActiveAnnouncement] = useState(null)
-  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [toast, setToast] = useState('')
-  const [activeTab, setActiveTab] = useState('overview')
 
-  useEffect(() => {
-    loadAll()
-  }, [])
+  useEffect(() => { loadAll() }, [])
 
   async function loadAll() {
     setLoading(true)
     try {
-      const [profilesRes, familiesRes, membersRes, announcementRes] = await Promise.all([
-        supabase.from('profiles').select('id, name, email, created_at, faith_level').order('created_at', { ascending: false }),
-        supabase.from('families').select('id, name, invite_code, created_at').order('created_at', { ascending: false }),
-        supabase.from('family_members').select('id, family_id, display_name, role'),
+      const [
+        usersRes,
+        groupsRes,
+        versesRes,
+        analyticsRes,
+        announcementRes
+      ] = await Promise.all([
+        supabase.from('profiles').select('id, name, email, created_at, faith_level, group_id, onboarding_complete').order('created_at', { ascending: false }),
+        supabase.from('groups').select('id, name, invite_code, owner_id, created_at'),
+        supabase.from('dinner_verses').select('id, verse_ref, category, active').order('verse_ref'),
+        supabase.from('analytics').select('event, user_id, created_at').order('created_at', { ascending: false }).limit(500),
         supabase.from('announcements').select('*').eq('active', true).order('created_at', { ascending: false }).limit(1)
       ])
 
-      const profiles = profilesRes.data || []
-      const familiesList = familiesRes.data || []
-      const membersList = membersRes.data || []
-      const announcements = announcementRes.data || []
+      const usersList = usersRes.data || []
+      const groupsList = groupsRes.data || []
 
-      setUsers(profiles)
-      setFamilies(familiesList)
-      setActiveAnnouncement(announcements[0] || null)
-      setStats({
-        users: profiles.length,
-        families: familiesList.length,
-        members: membersList.length,
+      // Enrich groups with member count and owner name
+      const enrichedGroups = groupsList.map(g => ({
+        ...g,
+        memberCount: usersList.filter(u => u.group_id === g.id).length,
+        ownerName: usersList.find(u => u.id === g.owner_id)?.name || 'Unknown'
+      }))
+
+      // Enrich users with group name
+      const enrichedUsers = usersList.map(u => ({
+        ...u,
+        groupName: groupsList.find(g => g.id === u.group_id)?.name || null
+      }))
+
+      // Analytics summary
+      const analytics = analyticsRes.data || []
+      const eventMap = {}
+      analytics.forEach(a => {
+        eventMap[a.event] = (eventMap[a.event] || 0) + 1
       })
+      const eventCountsList = Object.entries(eventMap)
+        .map(([event, count]) => ({ event, count }))
+        .sort((a, b) => b.count - a.count)
+
+      // Daily active users (last 7 days)
+      const days = []
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date()
+        d.setDate(d.getDate() - i)
+        const dateStr = d.toISOString().split('T')[0]
+        const count = new Set(
+          analytics
+            .filter(a => a.created_at.startsWith(dateStr))
+            .map(a => a.user_id)
+        ).size
+        days.push({ date: dateStr, count, label: d.toLocaleDateString('en-US', { weekday: 'short' }) })
+      }
+
+      setUsers(enrichedUsers)
+      setGroups(enrichedGroups)
+      setVerses(versesRes.data || [])
+      setAnalyticsData(analytics)
+      setEventCounts(eventCountsList)
+      setDailyActive(days)
+      setActiveAnnouncement((announcementRes.data || [])[0] || null)
     } catch (err) {
       showToast('Error loading data.')
     }
     setLoading(false)
   }
 
+  function showToast(msg) {
+    setToast(msg)
+    setTimeout(() => setToast(''), 2800)
+  }
+
+  async function resetUserGroup(userId, userName) {
+    if (!confirm(`Remove ${userName} from their group?`)) return
+    try {
+      await supabase.from('profiles').update({ group_id: null }).eq('id', userId)
+      showToast(`${userName} removed from their group.`)
+      await loadAll()
+    } catch (err) { showToast('Could not reset group.') }
+  }
+
+  async function deleteGroup(groupId, groupName) {
+    if (!confirm(`Delete group "${groupName}"? All members will be removed.`)) return
+    try {
+      await supabase.from('profiles').update({ group_id: null }).eq('group_id', groupId)
+      await supabase.from('groups').delete().eq('id', groupId)
+      showToast(`Group "${groupName}" deleted.`)
+      await loadAll()
+    } catch (err) { showToast('Could not delete group.') }
+  }
+
+  async function toggleVerse(verseId, currentActive) {
+    try {
+      await supabase.from('dinner_verses').update({ active: !currentActive }).eq('id', verseId)
+      setVerses(prev => prev.map(v => v.id === verseId ? { ...v, active: !currentActive } : v))
+      showToast(currentActive ? 'Verse deactivated.' : 'Verse activated.')
+    } catch (err) { showToast('Could not update verse.') }
+  }
+
   async function sendAnnouncement() {
     if (!announcement.trim()) return
     setSaving(true)
     try {
-      // Deactivate old announcements first
-      await supabase
-        .from('announcements')
-        .update({ active: false })
-        .eq('active', true)
-
-      // Create new announcement
-      const { data, error } = await supabase
-        .from('announcements')
-        .insert({
-          message: announcement.trim(),
-          active: true
-        })
-        .select()
-        .single()
-
-      if (error) {
-        console.error('Announcement error:', error)
-        showToast('Error: ' + error.message)
-        setSaving(false)
-        return
-      }
-
+      await supabase.from('announcements').update({ active: false }).eq('active', true)
+      const { data } = await supabase.from('announcements').insert({ message: announcement.trim(), active: true }).select().single()
       setActiveAnnouncement(data)
       setAnnouncement('')
       showToast('Announcement sent! ✓')
       await loadAll()
-    } catch (err) {
-      console.error('Announcement catch:', err)
-      showToast('Could not send announcement.')
-    }
+    } catch (err) { showToast('Could not send announcement.') }
     setSaving(false)
   }
 
@@ -91,27 +141,23 @@ export default function AdminPage({ onClose }) {
     showToast('Announcement cleared.')
   }
 
-  function showToast(msg) {
-    setToast(msg)
-    setTimeout(() => setToast(''), 2800)
-  }
-
-  function getFamilyMembers(familyId) {
-    return []
-  }
-
-  const recentUsers = users.slice(0, 10)
   const last7days = users.filter(u => {
     const d = new Date(u.created_at)
-    const now = new Date()
-    return (now - d) / (1000 * 60 * 60 * 24) <= 7
+    return (new Date() - d) / (1000 * 60 * 60 * 24) <= 7
   })
+
+  const todayActive = dailyActive[dailyActive.length - 1]?.count || 0
+  const conversations = eventCounts.find(e => e.event === 'discussion_marked')?.count || 0
+  const activeVerses = verses.filter(v => v.active).length
 
   const goldAccent = { position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: 'linear-gradient(90deg, var(--gold), transparent)' }
   const cardBase = { position: 'relative', overflow: 'hidden', background: 'var(--bg2)', border: '0.5px solid var(--border-gold)', borderRadius: '12px', padding: '1.25rem', marginBottom: '1rem' }
 
+  const tabs = ['overview', 'users', 'groups', 'verses', 'analytics', 'announce']
+
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'var(--bg)', zIndex: 500, overflowY: 'auto' }}>
+
       {/* Header */}
       <div style={{ background: 'var(--bg2)', borderBottom: '0.5px solid var(--border-gold)', padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -121,16 +167,19 @@ export default function AdminPage({ onClose }) {
             <div style={{ fontSize: '10px', color: 'var(--gold)', letterSpacing: '0.08em' }}>DINNER WITH JESUS · 1:10</div>
           </div>
         </div>
-        <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--silver)', fontSize: '20px', cursor: 'pointer', padding: '4px 8px' }}>✕</button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button onClick={loadAll} style={{ background: 'none', border: '0.5px solid var(--border)', borderRadius: 6, color: 'var(--silver)', fontSize: '11px', padding: '4px 10px', cursor: 'pointer' }}>↺ Refresh</button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--silver)', fontSize: '20px', cursor: 'pointer', padding: '4px 8px' }}>✕</button>
+        </div>
       </div>
 
-      <div style={{ maxWidth: '540px', margin: '0 auto', padding: '1rem 1.25rem 4rem' }}>
+      <div style={{ maxWidth: '600px', margin: '0 auto', padding: '1rem 1.25rem 4rem' }}>
 
         {/* Tabs */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: '1.25rem' }}>
-          {['overview', 'users', 'families', 'announce'].map(tab => (
+        <div style={{ display: 'flex', gap: 6, marginBottom: '1.25rem', flexWrap: 'wrap' }}>
+          {tabs.map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab)}
-              style={{ flex: 1, padding: '8px 4px', borderRadius: 8, border: `0.5px solid ${activeTab === tab ? 'var(--gold)' : 'var(--border)'}`, background: activeTab === tab ? 'var(--gold-soft)' : 'var(--bg3)', color: activeTab === tab ? 'var(--gold)' : 'var(--silver)', fontSize: '11px', letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer', fontWeight: activeTab === tab ? 600 : 400 }}>
+              style={{ padding: '7px 12px', borderRadius: 8, border: `0.5px solid ${activeTab === tab ? 'var(--gold)' : 'var(--border)'}`, background: activeTab === tab ? 'var(--gold-soft)' : 'var(--bg3)', color: activeTab === tab ? 'var(--gold)' : 'var(--silver)', fontSize: '11px', letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer', fontWeight: activeTab === tab ? 600 : 400 }}>
               {tab}
             </button>
           ))}
@@ -140,15 +189,18 @@ export default function AdminPage({ onClose }) {
           <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--silver)' }}>Loading...</div>
         ) : (
           <>
+
             {/* OVERVIEW */}
             {activeTab === 'overview' && (
               <>
-                {/* Stat cards */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: '1rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: '1rem' }}>
                   {[
-                    { label: 'Total Users', value: stats.users, icon: '👤' },
-                    { label: 'Families', value: stats.families, icon: '🍽️' },
-                    { label: 'New (7d)', value: last7days.length, icon: '✨' },
+                    { label: 'Total Users', value: users.length, icon: '👤' },
+                    { label: 'Dinner Circles', value: groups.length, icon: '🍽️' },
+                    { label: 'New This Week', value: last7days.length, icon: '✨' },
+                    { label: 'Active Today', value: todayActive, icon: '🔥' },
+                    { label: 'Conversations', value: conversations, icon: '🙏' },
+                    { label: 'Active Verses', value: activeVerses, icon: '📖' },
                   ].map(s => (
                     <div key={s.label} style={{ ...cardBase, textAlign: 'center', padding: '1rem 0.5rem' }}>
                       <div style={goldAccent} />
@@ -159,39 +211,48 @@ export default function AdminPage({ onClose }) {
                   ))}
                 </div>
 
-                {/* Active announcement */}
+                {/* 7 day activity */}
                 <div style={cardBase}>
                   <div style={goldAccent} />
-                  <div style={{ fontFamily: 'Lora, serif', fontSize: '0.95rem', fontWeight: 600, color: 'var(--white)', marginBottom: '0.5rem' }}>Active Announcement</div>
-                  {activeAnnouncement ? (
-                    <>
-                      <p style={{ fontSize: '13px', color: 'var(--cream)', lineHeight: 1.6, marginBottom: '0.75rem', fontStyle: 'italic' }}>
-                        "{activeAnnouncement.message}"
-                      </p>
-                      <button className="btn" style={{ fontSize: '12px', color: '#E57373', borderColor: 'rgba(229,115,115,0.2)' }} onClick={clearAnnouncement}>
-                        Clear announcement
-                      </button>
-                    </>
-                  ) : (
-                    <p style={{ fontSize: '13px', color: 'var(--silver)', fontStyle: 'italic' }}>No active announcement.</p>
-                  )}
+                  <div style={{ fontFamily: 'Lora, serif', fontSize: '0.95rem', fontWeight: 600, color: 'var(--white)', marginBottom: '0.75rem' }}>Daily Active Users — Last 7 Days</div>
+                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 80 }}>
+                    {dailyActive.map(d => (
+                      <div key={d.date} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                        <div style={{ width: '100%', background: 'var(--gold)', borderRadius: 4, height: d.count > 0 ? Math.max(8, (d.count / Math.max(...dailyActive.map(x => x.count), 1)) * 60) : 4, opacity: d.count > 0 ? 1 : 0.2 }} />
+                        <div style={{ fontSize: '9px', color: 'var(--silver)' }}>{d.label}</div>
+                        <div style={{ fontSize: '10px', color: 'var(--gold)', fontWeight: 600 }}>{d.count}</div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
                 {/* Recent signups */}
                 <div style={cardBase}>
                   <div style={goldAccent} />
                   <div style={{ fontFamily: 'Lora, serif', fontSize: '0.95rem', fontWeight: 600, color: 'var(--white)', marginBottom: '0.75rem' }}>Recent Signups</div>
-                  {recentUsers.map(u => (
+                  {users.slice(0, 8).map(u => (
                     <div key={u.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.6rem 0', borderBottom: '0.5px solid var(--border)' }}>
                       <div>
-                        <div style={{ fontSize: '14px', color: 'var(--cream)' }}>{u.name || 'No name'}</div>
-                        <div style={{ fontSize: '11px', color: 'var(--silver)' }}>{u.email}</div>
+                        <div style={{ fontSize: '13px', color: 'var(--cream)' }}>{u.name || 'No name'}</div>
+                        <div style={{ fontSize: '11px', color: 'var(--silver)' }}>{u.groupName ? `⭕ ${u.groupName}` : '— no circle'}</div>
                       </div>
-                      <div style={{ fontSize: '11px', color: 'var(--silver)', textAlign: 'right' }}>
-                        {new Date(u.created_at).toLocaleDateString()}
-                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--silver)' }}>{new Date(u.created_at).toLocaleDateString()}</div>
                     </div>
                   ))}
+                </div>
+
+                {/* Active announcement */}
+                <div style={cardBase}>
+                  <div style={goldAccent} />
+                  <div style={{ fontFamily: 'Lora, serif', fontSize: '0.95rem', fontWeight: 600, color: 'var(--white)', marginBottom: '0.5rem' }}>Active Announcement</div>
+                  {activeAnnouncement ? (
+                    <>
+                      <p style={{ fontSize: '13px', color: 'var(--cream)', lineHeight: 1.6, marginBottom: '0.75rem', fontStyle: 'italic' }}>"{activeAnnouncement.message}"</p>
+                      <button className="btn" style={{ fontSize: '12px', color: '#E57373', borderColor: 'rgba(229,115,115,0.2)' }} onClick={clearAnnouncement}>Clear announcement</button>
+                    </>
+                  ) : (
+                    <p style={{ fontSize: '13px', color: 'var(--silver)', fontStyle: 'italic' }}>No active announcement.</p>
+                  )}
                 </div>
               </>
             )}
@@ -205,59 +266,150 @@ export default function AdminPage({ onClose }) {
                 </div>
                 {users.map(u => (
                   <div key={u.id} style={{ padding: '0.75rem 0', borderBottom: '0.5px solid var(--border)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <div>
-                        <div style={{ fontSize: '14px', color: 'var(--cream)', fontWeight: 500 }}>{u.name || 'No name'}</div>
-                        <div style={{ fontSize: '12px', color: 'var(--silver)' }}>{u.email}</div>
-                      </div>
-                      <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontSize: '11px', color: 'var(--gold)', background: 'var(--gold-soft)', padding: '2px 8px', borderRadius: 999, marginBottom: 2 }}>
-                          Level {u.faith_level || 1}
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: '13px', color: 'var(--cream)', fontWeight: 500 }}>{u.name || 'No name'}</div>
+                        <div style={{ fontSize: '11px', color: 'var(--silver)' }}>{u.email}</div>
+                        <div style={{ fontSize: '11px', color: u.groupName ? 'var(--gold)' : 'var(--silver)', marginTop: 2 }}>
+                          {u.groupName ? `⭕ ${u.groupName}` : '— no circle'}
                         </div>
-                        <div style={{ fontSize: '10px', color: 'var(--silver)' }}>
-                          {new Date(u.created_at).toLocaleDateString()}
+                        <div style={{ fontSize: '10px', color: 'var(--silver)', marginTop: 2, opacity: 0.6 }}>
+                          Faith level {u.faith_level || 1} · Joined {new Date(u.created_at).toLocaleDateString()}
+                          {!u.onboarding_complete && <span style={{ color: '#E57373', marginLeft: 6 }}>· onboarding incomplete</span>}
                         </div>
                       </div>
+                      {u.group_id && (
+                        <button
+                          onClick={() => resetUserGroup(u.id, u.name)}
+                          style={{ background: 'none', border: '0.5px solid rgba(229,115,115,0.3)', borderRadius: 6, color: '#E57373', fontSize: '10px', padding: '4px 8px', cursor: 'pointer', flexShrink: 0 }}
+                        >
+                          Remove from group
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
               </div>
             )}
 
-            {/* FAMILIES */}
-            {activeTab === 'families' && (
+            {/* GROUPS */}
+            {activeTab === 'groups' && (
               <div style={cardBase}>
                 <div style={goldAccent} />
                 <div style={{ fontFamily: 'Lora, serif', fontSize: '0.95rem', fontWeight: 600, color: 'var(--white)', marginBottom: '0.75rem' }}>
-                  All Families ({families.length})
+                  All Dinner Circles ({groups.length})
                 </div>
-                {families.map(f => (
-                  <div key={f.id} style={{ padding: '0.75rem 0', borderBottom: '0.5px solid var(--border)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <div>
-                        <div style={{ fontSize: '14px', color: 'var(--cream)', fontWeight: 500 }}>{f.name}</div>
-                        <div style={{ fontSize: '12px', color: 'var(--gold)', letterSpacing: '0.1em' }}>{f.invite_code}</div>
+                {groups.length === 0 && (
+                  <p style={{ fontSize: '13px', color: 'var(--silver)', fontStyle: 'italic' }}>No circles yet.</p>
+                )}
+                {groups.map(g => (
+                  <div key={g.id} style={{ padding: '0.75rem 0', borderBottom: '0.5px solid var(--border)' }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: '13px', color: 'var(--cream)', fontWeight: 500 }}>{g.name}</div>
+                        <div style={{ fontSize: '11px', color: 'var(--gold)', letterSpacing: '0.1em' }}>{g.invite_code}</div>
+                        <div style={{ fontSize: '11px', color: 'var(--silver)', marginTop: 2 }}>
+                          Owner: {g.ownerName} · {g.memberCount} member{g.memberCount !== 1 ? 's' : ''}
+                        </div>
+                        <div style={{ fontSize: '10px', color: 'var(--silver)', opacity: 0.6, marginTop: 2 }}>
+                          Created {new Date(g.created_at).toLocaleDateString()}
+                        </div>
                       </div>
-                      <div style={{ fontSize: '10px', color: 'var(--silver)' }}>
-                        {new Date(f.created_at).toLocaleDateString()}
-                      </div>
+                      <button
+                        onClick={() => deleteGroup(g.id, g.name)}
+                        style={{ background: 'none', border: '0.5px solid rgba(229,115,115,0.3)', borderRadius: 6, color: '#E57373', fontSize: '10px', padding: '4px 8px', cursor: 'pointer', flexShrink: 0 }}
+                      >
+                        Delete
+                      </button>
                     </div>
                   </div>
                 ))}
               </div>
+            )}
+
+            {/* VERSES */}
+            {activeTab === 'verses' && (
+              <div style={cardBase}>
+                <div style={goldAccent} />
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+                  <div style={{ fontFamily: 'Lora, serif', fontSize: '0.95rem', fontWeight: 600, color: 'var(--white)' }}>
+                    Dinner Verses ({verses.length})
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--silver)' }}>
+                    {activeVerses} active · {verses.length - activeVerses} inactive
+                  </div>
+                </div>
+                {verses.map(v => (
+                  <div key={v.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.6rem 0', borderBottom: '0.5px solid var(--border)', gap: 8 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '12px', color: v.active ? 'var(--cream)' : 'var(--silver)', fontWeight: 500 }}>{v.verse_ref}</div>
+                      <div style={{ fontSize: '10px', color: 'var(--gold)', opacity: 0.7 }}>{v.category}</div>
+                    </div>
+                    <button
+                      onClick={() => toggleVerse(v.id, v.active)}
+                      style={{ background: v.active ? 'var(--gold-soft)' : 'var(--bg3)', border: `0.5px solid ${v.active ? 'var(--border-gold)' : 'var(--border)'}`, borderRadius: 6, color: v.active ? 'var(--gold)' : 'var(--silver)', fontSize: '10px', padding: '4px 10px', cursor: 'pointer', flexShrink: 0 }}
+                    >
+                      {v.active ? 'Active' : 'Inactive'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* ANALYTICS */}
+            {activeTab === 'analytics' && (
+              <>
+                {/* Event totals */}
+                <div style={cardBase}>
+                  <div style={goldAccent} />
+                  <div style={{ fontFamily: 'Lora, serif', fontSize: '0.95rem', fontWeight: 600, color: 'var(--white)', marginBottom: '0.75rem' }}>Feature Usage</div>
+                  {eventCounts.length === 0 && (
+                    <p style={{ fontSize: '13px', color: 'var(--silver)', fontStyle: 'italic' }}>No events tracked yet.</p>
+                  )}
+                  {eventCounts.map(e => (
+                    <div key={e.event} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.5rem 0', borderBottom: '0.5px solid var(--border)' }}>
+                      <div style={{ fontSize: '13px', color: 'var(--cream)' }}>{e.event.replace(/_/g, ' ')}</div>
+                      <div style={{ fontSize: '13px', color: 'var(--gold)', fontWeight: 600 }}>{e.count}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Per user activity */}
+                <div style={cardBase}>
+                  <div style={goldAccent} />
+                  <div style={{ fontFamily: 'Lora, serif', fontSize: '0.95rem', fontWeight: 600, color: 'var(--white)', marginBottom: '0.75rem' }}>Activity Per User</div>
+                  {users.map(u => {
+                    const userEvents = analyticsData.filter(a => a.user_id === u.id)
+                    const lastSeen = userEvents[0]?.created_at
+                    return (
+                      <div key={u.id} style={{ padding: '0.65rem 0', borderBottom: '0.5px solid var(--border)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <div>
+                            <div style={{ fontSize: '13px', color: 'var(--cream)' }}>{u.name || 'No name'}</div>
+                            <div style={{ fontSize: '11px', color: 'var(--silver)' }}>
+                              {lastSeen ? `Last seen ${new Date(lastSeen).toLocaleDateString()}` : 'No activity yet'}
+                            </div>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: '13px', color: 'var(--gold)', fontWeight: 600 }}>{userEvents.length}</div>
+                            <div style={{ fontSize: '10px', color: 'var(--silver)' }}>events</div>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </>
             )}
 
             {/* ANNOUNCE */}
             {activeTab === 'announce' && (
               <div style={cardBase}>
                 <div style={goldAccent} />
-                <div style={{ fontFamily: 'Lora, serif', fontSize: '0.95rem', fontWeight: 600, color: 'var(--white)', marginBottom: '0.25rem' }}>
-                  Send Announcement
-                </div>
+                <div style={{ fontFamily: 'Lora, serif', fontSize: '0.95rem', fontWeight: 600, color: 'var(--white)', marginBottom: '0.25rem' }}>Send Announcement</div>
                 <p style={{ fontSize: '13px', color: 'var(--silver)', marginBottom: '1rem', lineHeight: 1.6 }}>
-                  This message will appear as a banner at the top of the app for all users. One active announcement at a time.
+                  This message appears as a banner at the top of the app for all users.
                 </p>
-
                 {activeAnnouncement && (
                   <div style={{ background: 'var(--bg3)', borderRadius: 8, padding: '0.875rem', border: '0.5px solid var(--border-gold)', marginBottom: '1rem' }}>
                     <div style={{ fontSize: '11px', color: 'var(--gold)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '0.35rem' }}>Current active message</div>
@@ -267,7 +419,6 @@ export default function AdminPage({ onClose }) {
                     </button>
                   </div>
                 )}
-
                 <textarea
                   value={announcement}
                   onChange={e => setAnnouncement(e.target.value)}
@@ -279,6 +430,7 @@ export default function AdminPage({ onClose }) {
                 </button>
               </div>
             )}
+
           </>
         )}
       </div>
