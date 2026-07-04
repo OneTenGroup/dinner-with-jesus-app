@@ -466,7 +466,7 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
           {mode === 'create' && (
             <>
               <p style={{ fontSize: '13px', color: 'var(--white)', marginBottom: '0.25rem', fontWeight: 500 }}>Name your dinner circle</p>
-              <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.875rem', fontWeight: 300 }}>Usually your family name — e.g. "The Korbars"</p>
+              <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.875rem', fontWeight: 300 }}>Usually your family name — e.g. "The Johnson's"</p>
               <input type="text" placeholder="The ___ Family" value={newGroupName} onChange={e => setNewGroupName(e.target.value)} maxLength={40} style={{ marginBottom: 8 }} />
               <button className="btn btn-gold" onClick={handleCreateGroup} disabled={creating} style={{ marginBottom: 8 }}>{creating ? 'Setting the table...' : 'Create my circle 🙏'}</button>
               <button onClick={() => setMode('none')} style={{ fontSize: '13px', color: 'var(--silver)', background: 'none', border: 'none', cursor: 'pointer', width: '100%', padding: '6px 0' }}>Cancel</button>
