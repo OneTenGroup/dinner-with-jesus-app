@@ -1,11 +1,15 @@
 {
   "routes": [
+    { "src": "/app", "dest": "/index.html" },
+    { "src": "/app/(.*)", "dest": "/index.html" },
+    { "src": "/table/(.*)", "dest": "/index.html" },
     { "src": "/privacy-policy", "dest": "/privacy-policy.html" },
     { "src": "/terms-of-service", "dest": "/terms-of-service.html" },
-    { "src": "/table/(.*)", "dest": "/index.html" },
-    { "src": "/app/(.*)", "dest": "/index.html" },
-    { "src": "/app", "dest": "/index.html" },
+    { "src": "/icons/(.*)", "dest": "/icons/$1" },
     { "src": "/assets/(.*)", "dest": "/assets/$1" },
+    { "src": "/jesus-at-table.png", "dest": "/jesus-at-table.png" },
+    { "src": "/favicon.png", "dest": "/favicon.png" },
+    { "src": "/manifest.json", "dest": "/manifest.json" },
     { "src": "^/$", "dest": "/landing.html" },
     { "src": "/(.*)", "dest": "/index.html" }
   ]
