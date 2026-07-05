@@ -2,7 +2,7 @@
   "id": "ai.flippingtables.app",
   "categories": ["lifestyle", "education", "religion"],
   "name": "Dinner with Jesus",
-  "short_name": "DWJ",
+  "short_name": "Dinner w/ Jesus",
   "description": "Not a ritual. A relationship. Faith conversations for every family table.",
   "start_url": "/app",
   "display": "standalone",
