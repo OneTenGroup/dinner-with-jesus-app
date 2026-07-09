@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useFamily } from '../hooks/useFamily'
 import { supabase } from '../lib/supabase'
@@ -15,7 +15,7 @@ const BLESSINGS = [
 
 export default function TablePage({ onLeaveTable }) {
   const { user, profile } = useAuth()
-  const { group, members, loading: familyLoading } = useFamily()
+  const { group, members } = useFamily()
 
   const [verse, setVerse] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -24,24 +24,28 @@ export default function TablePage({ onLeaveTable }) {
   const [savingNote, setSavingNote] = useState(false)
   const [noteTarget, setNoteTarget] = useState('both')
   const [toast, setToast] = useState('')
-  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false)
   const [showBlessing, setShowBlessing] = useState(false)
   const [blessing, setBlessing] = useState('')
   const [showPrayerOverlay, setShowPrayerOverlay] = useState(false)
   const [prayerIdx, setPrayerIdx] = useState(0)
   const [prayedCount, setPrayedCount] = useState(0)
   const [discussed, setDiscussed] = useState(false)
+  const prayerInitialized = useRef(false)
 
   const faithLevel = profile?.faith_level || 1
 
+  // Initialize prayer rotation randomly once members are loaded
   useEffect(() => {
-    // CRITICAL: never load the verse until useFamily has fully resolved.
-    // This prevents the cold-start race condition where group is still
-    // null/loading and we accidentally pick + overwrite a fresh verse
-    // for the whole group.
-    if (familyLoading) return
+    if (members.length > 0 && !prayerInitialized.current) {
+      const randomStart = Math.floor(Math.random() * members.length)
+      setPrayerIdx(randomStart)
+      prayerInitialized.current = true
+    }
+  }, [members])
+
+  useEffect(() => {
     loadVerse()
-  }, [group?.id, familyLoading])
+  }, [group?.id])
 
   async function loadVerse() {
     setLoading(true)
@@ -81,9 +85,6 @@ export default function TablePage({ onLeaveTable }) {
         }
       }
 
-      // No groupId, or no sticky note found for an existing group yet.
-      // Only fall through to picking a NEW verse if we are CONFIDENT
-      // there is genuinely no sticky note today (not just an unloaded group).
       const { data: historyData } = await supabase
         .from('verse_history')
         .select('dinner_verse_id')
@@ -111,6 +112,7 @@ export default function TablePage({ onLeaveTable }) {
       setVerse(picked)
 
       if (groupId && picked) {
+        const today = new Date().toISOString().split('T')[0]
         await supabase
           .from('group_verse')
           .upsert({ group_id: groupId, dinner_verse_id: picked.id, verse_date: today }, { onConflict: 'group_id,verse_date' })
@@ -154,13 +156,14 @@ export default function TablePage({ onLeaveTable }) {
 
   function nextPrayer() {
     const newIdx = prayerIdx + 1
-    setPrayerIdx(newIdx)
-    setPrayedCount(c => c + 1)
     const justPrayed = members[prayerIdx % members.length]
     const upNext = members[newIdx % members.length]
-    if (members.length <= 1 || newIdx >= members.length) {
+    const newCount = prayedCount + 1
+    setPrayedCount(newCount)
+    setPrayerIdx(newIdx)
+    if (newCount >= members.length) {
       track('prayer_completed', { member_count: members.length })
-      showToast(`${justPrayed || 'You'} prayed. Everyone has prayed tonight. 🙏`)
+      showToast(`Everyone has prayed tonight. 🙏`)
     } else {
       showToast(`${justPrayed} prayed. ${upNext} is up next. 🙏`)
     }
@@ -219,17 +222,23 @@ export default function TablePage({ onLeaveTable }) {
   const nextMember = members.length > 1 ? members[(prayerIdx + 1) % members.length] : null
 
   const goldAccent = { position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: 'linear-gradient(90deg, var(--gold), transparent)' }
-  const cardBase = { position: 'relative', overflow: 'hidden', background: 'var(--bg2)', border: '0.5px solid var(--border-gold)', borderRadius: '12px', padding: '1.25rem', marginBottom: '0.875rem' }
+  const cardBase = { position: 'relative', overflow: 'hidden', background: 'var(--bg2)', border: '1.5px solid #C9A84C', borderRadius: '12px', padding: '1.25rem', marginBottom: '1.25rem', boxShadow: '0 3px 10px rgba(0,0,0,0.45)' }
   const sectionTitle = { fontFamily: 'Lora, serif', fontSize: '1rem', fontWeight: 600, color: 'var(--white)', letterSpacing: '0.02em', marginBottom: '0.25rem', display: 'block' }
 
-  if (familyLoading || loading) return (
+  if (loading) return (
     <div className="loading-wrap" style={{ flex: 1 }}>
       <div className="loading-cross">✝️</div>
       <p style={{ color: 'var(--silver)', fontSize: '14px' }}>Preparing your verse...</p>
     </div>
   )
 
-  // No group yet — guide them to Settings
+  if (error) return (
+    <div className="loading-wrap" style={{ flex: 1 }}>
+      <p style={{ color: '#E57373', fontSize: '14px', textAlign: 'center', padding: '1rem' }}>{error}</p>
+      <button className="btn btn-gold" style={{ marginTop: '1rem' }} onClick={loadVerse}>Try again</button>
+    </div>
+  )
+
   if (!group) return (
     <div className="loading-wrap" style={{ flex: 1, padding: '2rem', textAlign: 'center' }}>
       <div style={{ fontSize: '2.5rem', marginBottom: '1.25rem' }}>✝️</div>
@@ -237,7 +246,7 @@ export default function TablePage({ onLeaveTable }) {
         The table is set.<br />You just need a circle.
       </p>
       <p style={{ fontSize: '13px', color: 'var(--silver)', lineHeight: 1.7, marginBottom: '1.5rem', fontStyle: 'italic' }}>
-        Dinner with Jesus is better together. Create your dinner circle in Settings and invite your family — then come back to the table.
+        Create your dinner circle in Settings and invite your family — then come back to the table.
       </p>
       <button
         className="btn btn-gold"
@@ -246,13 +255,6 @@ export default function TablePage({ onLeaveTable }) {
       >
         ⚙️ Set up my dinner circle
       </button>
-    </div>
-  )
-
-  if (error) return (
-    <div className="loading-wrap" style={{ flex: 1 }}>
-      <p style={{ color: '#E57373', fontSize: '14px', textAlign: 'center', padding: '1rem' }}>{error}</p>
-      <button className="btn btn-gold" style={{ marginTop: '1rem' }} onClick={loadVerse}>Try again</button>
     </div>
   )
 
@@ -286,8 +288,15 @@ export default function TablePage({ onLeaveTable }) {
         </div>
         {members.length > 0 ? (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {members.map(m => (
-              <span key={m} style={{ fontSize: '12px', color: 'var(--cream)', background: 'var(--bg4)', border: '0.5px solid var(--border-gold)', borderRadius: 999, padding: '4px 12px' }}>
+            {members.map((m, i) => (
+              <span key={m} style={{
+                fontSize: '12px',
+                color: 'var(--cream)',
+                background: i === prayerIdx % members.length && !allPrayed ? 'var(--gold-soft)' : 'var(--bg4)',
+                border: `0.5px solid ${i === prayerIdx % members.length && !allPrayed ? 'var(--border-gold)' : 'var(--border)'}`,
+                borderRadius: 999,
+                padding: '4px 12px'
+              }}>
                 {m}
               </span>
             ))}
@@ -301,7 +310,7 @@ export default function TablePage({ onLeaveTable }) {
 
       {/* Verse */}
       {verse && (
-        <div style={{ ...cardBase, borderColor: 'var(--border-gold)' }}>
+        <div style={{ ...cardBase, borderColor: '#C9A84C' }}>
           <div style={goldAccent} />
           <div className="verse-ref">{verse.verse_ref} · {verse.category}</div>
           <div className="verse-text">"{verse.verse_text}"</div>
@@ -327,13 +336,13 @@ export default function TablePage({ onLeaveTable }) {
           <p style={{ fontFamily: 'Lora, serif', fontSize: '1rem', color: 'var(--white)', lineHeight: 1.65, fontStyle: 'italic', marginTop: '0.5rem' }}>
             {getQuestion(1)}
           </p>
-          {faithLevel >= 2 && verse.question_level_2 && (
+          {verse.question_level_2 && (
             <div style={{ marginTop: '1rem', borderTop: '0.5px solid var(--border)', paddingTop: '0.875rem' }}>
               <p style={{ fontSize: '11px', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--silver2)', marginBottom: '0.5rem', fontWeight: 500 }}>Go deeper</p>
               <p style={{ fontFamily: 'Lora, serif', fontSize: '0.9rem', color: 'var(--silver)', lineHeight: 1.6, fontStyle: 'italic' }}>{getQuestion(2)}</p>
             </div>
           )}
-          {faithLevel >= 3 && verse.question_level_3 && (
+          {verse.question_level_3 && (
             <div style={{ marginTop: '0.875rem', borderTop: '0.5px solid var(--border)', paddingTop: '0.875rem' }}>
               <p style={{ fontSize: '11px', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--silver2)', marginBottom: '0.5rem', fontWeight: 500 }}>Push further</p>
               <p style={{ fontFamily: 'Lora, serif', fontSize: '0.9rem', color: 'var(--silver)', lineHeight: 1.6, fontStyle: 'italic' }}>{getQuestion(3)}</p>
@@ -363,7 +372,7 @@ export default function TablePage({ onLeaveTable }) {
           <p style={{ fontSize: '11px', color: 'var(--silver)', textAlign: 'right', marginTop: '0.5rem' }}>— Amen 🙏</p>
         </div>
         <div className="btn-row">
-          <button className="btn btn-green" onClick={nextPrayer} style={{ opacity: allPrayed ? 0.6 : 1 }}>
+          <button className="btn btn-green" onClick={nextPrayer} disabled={allPrayed} style={{ opacity: allPrayed ? 0.6 : 1 }}>
             {allPrayed ? '🙏 All prayed' : '✓ We prayed together'}
           </button>
           <button className="btn" onClick={() => setShowPrayerOverlay(true)}>📖 Full prayer</button>
@@ -371,7 +380,7 @@ export default function TablePage({ onLeaveTable }) {
       </div>
 
       {/* We discussed this */}
-      <div style={{ marginBottom: '0.875rem' }}>
+      <div style={{ marginBottom: '1.25rem' }}>
         <button
           className="btn btn-gold"
           style={{ width: '100%', opacity: discussed ? 0.6 : 1 }}
@@ -395,7 +404,6 @@ export default function TablePage({ onLeaveTable }) {
           placeholder="Something someone said that you never want to forget..."
           style={{ minHeight: 72, resize: 'none', marginBottom: 8 }}
         />
-
         <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
           {[
             { key: 'personal', label: 'My journal' },
@@ -408,7 +416,6 @@ export default function TablePage({ onLeaveTable }) {
             </button>
           ))}
         </div>
-
         <button className="btn btn-gold" onClick={saveNote} disabled={savingNote}>
           {savingNote ? 'Saving...' : 'Save this moment'}
         </button>
