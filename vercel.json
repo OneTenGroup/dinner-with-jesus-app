@@ -13,5 +13,6 @@
     { "src": "/manifest.json", "dest": "/manifest.json" },
     { "src": "^/$", "dest": "/landing.html" },
     { "src": "/(.*)", "dest": "/index.html" }
+    { "src": "/delete-account", "dest": "/delete-account.html" },
   ]
 }
