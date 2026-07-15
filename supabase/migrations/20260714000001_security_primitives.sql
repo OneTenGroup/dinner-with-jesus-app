@@ -153,6 +153,17 @@ grant execute on function public.join_group_by_invite_code(text) to authenticate
 -- unknown -- no enumeration hint either way). Returns one row with
 -- verse_ref = null if the group exists but hasn't locked tonight's
 -- verse yet, matching the client's existing "verse not set" message.
+--
+-- NOTE: this function is superseded later in the same deployment phase
+-- by a create-or-replace in 20260714000004_shared_dinner_session.sql,
+-- which adds family-timezone + 4am-cutoff date resolution and reads
+-- the session's stored prayer_tier instead of a hardcoded
+-- 'prayer_level_1' literal. Defined here first, in its simpler original
+-- form, deliberately -- this file must not forward-reference
+-- public.canonical_dinner_date() or public.groups.timezone, both of
+-- which are only defined in migration 4, which runs after this one.
+-- The two-step definition (basic here, upgraded there) keeps each
+-- migration file's dependencies strictly one-directional.
 create or replace function public.get_guest_table_by_invite_code(invite_code_input text)
 returns table(
   group_name text,
@@ -211,9 +222,10 @@ comment on function public.get_guest_table_by_invite_code(text) is
   'Server-side guest-table lookup by exact invite code. Returns only the '
   'fields GuestTablePage.jsx renders (group name + tonight''s verse '
   'content) -- never owner_id, invite_code, member/profile data, notes, '
-  'or analytics. Zero rows for any code that does not match, so an '
-  'invalid guess is indistinguishable from a well-formed-but-unknown '
-  'code.';
+  'or analytics. Zero rows for any code that does not match. SUPERSEDED '
+  'by a create-or-replace in 20260714000004_shared_dinner_session.sql '
+  '-- see that file for the timezone-aware, prayer_tier-aware version '
+  'that is actually live once both migrations are applied.';
 
 revoke all on function public.get_guest_table_by_invite_code(text) from public;
 -- Granted to anon AND authenticated: unauthenticated guest access is a
