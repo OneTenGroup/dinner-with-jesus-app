@@ -16,8 +16,26 @@ export default function AdminPage({ onClose }) {
   const [announcement, setAnnouncement] = useState('')
   const [activeAnnouncement, setActiveAnnouncement] = useState(null)
   const [saving, setSaving] = useState(false)
+  const [pendingAction, setPendingAction] = useState(null) // guards against double taps on group/verse/announcement actions
 
-  useEffect(() => { loadAll() }, [])
+  // Defense in depth: re-verify admin status against the database on mount
+  // rather than trusting that this component was only ever shown to an
+  // admin. Fails closed — any error or non-true result closes the panel
+  // before any admin data is fetched. `loading` stays true (showing the
+  // existing loading state below) until this resolves.
+  useEffect(() => {
+    let cancelled = false
+    supabase.rpc('is_admin').then(({ data, error }) => {
+      if (cancelled) return
+      if (error || data !== true) {
+        console.warn('[admin-page] Authorization check failed — closing.', error?.message)
+        onClose()
+        return
+      }
+      loadAll()
+    })
+    return () => { cancelled = true }
+  }, [])
 
   async function loadAll() {
     setLoading(true)
@@ -96,49 +114,86 @@ export default function AdminPage({ onClose }) {
 
   async function resetUserGroup(userId, userName) {
     if (!confirm(`Remove ${userName} from their group?`)) return
+    if (pendingAction) return // prevent double submission
+    setPendingAction(`reset-${userId}`)
     try {
-      await supabase.from('profiles').update({ group_id: null }).eq('id', userId)
+      const { error } = await supabase.from('profiles').update({ group_id: null }).eq('id', userId)
+      if (error) throw error
       showToast(`${userName} removed from their group.`)
       await loadAll()
-    } catch (err) { showToast('Could not reset group.') }
+    } catch (err) {
+      console.error('[admin:resetUserGroup]', err?.message)
+      showToast('Could not reset group. Try again.')
+    }
+    setPendingAction(null)
   }
 
   async function deleteGroup(groupId, groupName) {
     if (!confirm(`Delete group "${groupName}"? All members will be removed.`)) return
+    if (pendingAction) return // prevent double submission
+    setPendingAction(`delete-${groupId}`)
     try {
-      await supabase.from('profiles').update({ group_id: null }).eq('group_id', groupId)
-      await supabase.from('groups').delete().eq('id', groupId)
+      const { error: memberError } = await supabase.from('profiles').update({ group_id: null }).eq('group_id', groupId)
+      if (memberError) throw memberError
+      const { error: groupError } = await supabase.from('groups').delete().eq('id', groupId)
+      if (groupError) throw groupError
       showToast(`Group "${groupName}" deleted.`)
       await loadAll()
-    } catch (err) { showToast('Could not delete group.') }
+    } catch (err) {
+      console.error('[admin:deleteGroup]', err?.message)
+      showToast('Could not delete group. Try again.')
+    }
+    setPendingAction(null)
   }
 
   async function toggleVerse(verseId, currentActive) {
+    if (pendingAction) return // prevent double submission
+    setPendingAction(`verse-${verseId}`)
     try {
-      await supabase.from('dinner_verses').update({ active: !currentActive }).eq('id', verseId)
+      const { error } = await supabase.from('dinner_verses').update({ active: !currentActive }).eq('id', verseId)
+      if (error) throw error
       setVerses(prev => prev.map(v => v.id === verseId ? { ...v, active: !currentActive } : v))
       showToast(currentActive ? 'Verse deactivated.' : 'Verse activated.')
-    } catch (err) { showToast('Could not update verse.') }
+    } catch (err) {
+      console.error('[admin:toggleVerse]', err?.message)
+      showToast('Could not update verse. Try again.')
+    }
+    setPendingAction(null)
   }
 
   async function sendAnnouncement() {
     if (!announcement.trim()) return
+    if (saving) return // prevent double submission
     setSaving(true)
     try {
-      await supabase.from('announcements').update({ active: false }).eq('active', true)
-      const { data } = await supabase.from('announcements').insert({ message: announcement.trim(), active: true }).select().single()
+      const { error: clearError } = await supabase.from('announcements').update({ active: false }).eq('active', true)
+      if (clearError) throw clearError
+      const { data, error: insertError } = await supabase.from('announcements').insert({ message: announcement.trim(), active: true }).select().single()
+      if (insertError) throw insertError
       setActiveAnnouncement(data)
       setAnnouncement('')
       showToast('Announcement sent! ✓')
       await loadAll()
-    } catch (err) { showToast('Could not send announcement.') }
+    } catch (err) {
+      console.error('[admin:sendAnnouncement]', err?.message)
+      showToast('Could not send announcement. Your draft is still here — try again.')
+    }
     setSaving(false)
   }
 
   async function clearAnnouncement() {
-    await supabase.from('announcements').update({ active: false }).eq('active', true)
-    setActiveAnnouncement(null)
-    showToast('Announcement cleared.')
+    if (pendingAction) return // prevent double submission
+    setPendingAction('clear-announcement')
+    try {
+      const { error } = await supabase.from('announcements').update({ active: false }).eq('active', true)
+      if (error) throw error
+      setActiveAnnouncement(null)
+      showToast('Announcement cleared.')
+    } catch (err) {
+      console.error('[admin:clearAnnouncement]', err?.message)
+      showToast('Could not clear the announcement. Try again.')
+    }
+    setPendingAction(null)
   }
 
   const last7days = users.filter(u => {
@@ -248,7 +303,9 @@ export default function AdminPage({ onClose }) {
                   {activeAnnouncement ? (
                     <>
                       <p style={{ fontSize: '13px', color: 'var(--cream)', lineHeight: 1.6, marginBottom: '0.75rem', fontStyle: 'italic' }}>"{activeAnnouncement.message}"</p>
-                      <button className="btn" style={{ fontSize: '12px', color: '#E57373', borderColor: 'rgba(229,115,115,0.2)' }} onClick={clearAnnouncement}>Clear announcement</button>
+                      <button className="btn" style={{ fontSize: '12px', color: '#E57373', borderColor: 'rgba(229,115,115,0.2)' }} onClick={clearAnnouncement} disabled={pendingAction === 'clear-announcement'}>
+                        {pendingAction === 'clear-announcement' ? 'Clearing...' : 'Clear announcement'}
+                      </button>
                     </>
                   ) : (
                     <p style={{ fontSize: '13px', color: 'var(--silver)', fontStyle: 'italic' }}>No active announcement.</p>
@@ -281,9 +338,10 @@ export default function AdminPage({ onClose }) {
                       {u.group_id && (
                         <button
                           onClick={() => resetUserGroup(u.id, u.name)}
-                          style={{ background: 'none', border: '0.5px solid rgba(229,115,115,0.3)', borderRadius: 6, color: '#E57373', fontSize: '10px', padding: '4px 8px', cursor: 'pointer', flexShrink: 0 }}
+                          disabled={pendingAction === `reset-${u.id}`}
+                          style={{ background: 'none', border: '0.5px solid rgba(229,115,115,0.3)', borderRadius: 6, color: '#E57373', fontSize: '10px', padding: '4px 8px', cursor: pendingAction === `reset-${u.id}` ? 'default' : 'pointer', flexShrink: 0, opacity: pendingAction === `reset-${u.id}` ? 0.5 : 1 }}
                         >
-                          Remove from group
+                          {pendingAction === `reset-${u.id}` ? 'Removing...' : 'Remove from group'}
                         </button>
                       )}
                     </div>
@@ -317,9 +375,10 @@ export default function AdminPage({ onClose }) {
                       </div>
                       <button
                         onClick={() => deleteGroup(g.id, g.name)}
-                        style={{ background: 'none', border: '0.5px solid rgba(229,115,115,0.3)', borderRadius: 6, color: '#E57373', fontSize: '10px', padding: '4px 8px', cursor: 'pointer', flexShrink: 0 }}
+                        disabled={pendingAction === `delete-${g.id}`}
+                        style={{ background: 'none', border: '0.5px solid rgba(229,115,115,0.3)', borderRadius: 6, color: '#E57373', fontSize: '10px', padding: '4px 8px', cursor: pendingAction === `delete-${g.id}` ? 'default' : 'pointer', flexShrink: 0, opacity: pendingAction === `delete-${g.id}` ? 0.5 : 1 }}
                       >
-                        Delete
+                        {pendingAction === `delete-${g.id}` ? 'Deleting...' : 'Delete'}
                       </button>
                     </div>
                   </div>
@@ -347,9 +406,10 @@ export default function AdminPage({ onClose }) {
                     </div>
                     <button
                       onClick={() => toggleVerse(v.id, v.active)}
-                      style={{ background: v.active ? 'var(--gold-soft)' : 'var(--bg3)', border: `0.5px solid ${v.active ? 'var(--border-gold)' : 'var(--border)'}`, borderRadius: 6, color: v.active ? 'var(--gold)' : 'var(--silver)', fontSize: '10px', padding: '4px 10px', cursor: 'pointer', flexShrink: 0 }}
+                      disabled={pendingAction === `verse-${v.id}`}
+                      style={{ background: v.active ? 'var(--gold-soft)' : 'var(--bg3)', border: `0.5px solid ${v.active ? 'var(--border-gold)' : 'var(--border)'}`, borderRadius: 6, color: v.active ? 'var(--gold)' : 'var(--silver)', fontSize: '10px', padding: '4px 10px', cursor: pendingAction === `verse-${v.id}` ? 'default' : 'pointer', flexShrink: 0, opacity: pendingAction === `verse-${v.id}` ? 0.5 : 1 }}
                     >
-                      {v.active ? 'Active' : 'Inactive'}
+                      {pendingAction === `verse-${v.id}` ? '...' : v.active ? 'Active' : 'Inactive'}
                     </button>
                   </div>
                 ))}
@@ -414,8 +474,8 @@ export default function AdminPage({ onClose }) {
                   <div style={{ background: 'var(--bg3)', borderRadius: 8, padding: '0.875rem', border: '0.5px solid var(--border-gold)', marginBottom: '1rem' }}>
                     <div style={{ fontSize: '11px', color: 'var(--gold)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '0.35rem' }}>Current active message</div>
                     <p style={{ fontSize: '13px', color: 'var(--cream)', fontStyle: 'italic', lineHeight: 1.6 }}>"{activeAnnouncement.message}"</p>
-                    <button className="btn" style={{ marginTop: '0.75rem', fontSize: '12px', color: '#E57373', borderColor: 'rgba(229,115,115,0.2)' }} onClick={clearAnnouncement}>
-                      Clear this announcement
+                    <button className="btn" style={{ marginTop: '0.75rem', fontSize: '12px', color: '#E57373', borderColor: 'rgba(229,115,115,0.2)' }} onClick={clearAnnouncement} disabled={pendingAction === 'clear-announcement'}>
+                      {pendingAction === 'clear-announcement' ? 'Clearing...' : 'Clear this announcement'}
                     </button>
                   </div>
                 )}
