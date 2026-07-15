@@ -201,13 +201,23 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
   }
 
   async function handleTranslation(t) {
-    await updateProfile({ preferred_translation: t })
-    showToast(`Translation set to ${t} ✓`)
+    const { error } = await updateProfile({ preferred_translation: t })
+    if (error) {
+      console.error('[settings:handleTranslation]', error.message)
+      showToast('Could not update translation. Try again.')
+    } else {
+      showToast(`Translation set to ${t} ✓`)
+    }
   }
 
   async function handleFaithLevel(level) {
-    await updateProfile({ faith_level: level })
-    showToast('Faith journey level updated ✓')
+    const { error } = await updateProfile({ faith_level: level })
+    if (error) {
+      console.error('[settings:handleFaithLevel]', error.message)
+      showToast('Could not update faith level. Try again.')
+    } else {
+      showToast('Faith journey level updated ✓')
+    }
   }
 
   async function handleUpdateName() {
@@ -564,7 +574,13 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
         <button className="btn" style={{ marginBottom: '0.75rem', color: 'var(--gold)', borderColor: 'var(--border-gold)', background: 'var(--gold-soft)' }} onClick={onOpenAdmin}>⚙️ Admin Dashboard</button>
       )}
 
-      <button className="btn" style={{ marginBottom: '2rem', color: '#E57373', borderColor: 'rgba(229,115,115,0.2)' }} onClick={signOut}>Sign out</button>
+      <button className="btn" style={{ marginBottom: '0.75rem', color: '#E57373', borderColor: 'rgba(229,115,115,0.2)' }} onClick={signOut}>Sign out</button>
+
+      <p style={{ textAlign: 'center', marginBottom: '2rem' }}>
+        <a href="/delete-account" target="_blank" rel="noreferrer" style={{ fontSize: '12px', color: 'var(--silver)', opacity: 0.6, textDecoration: 'underline', textUnderlineOffset: '3px' }}>
+          Delete my account
+        </a>
+      </p>
 
       <div className={`toast ${toast ? 'show' : ''}`}>{toast}</div>
     </div>
