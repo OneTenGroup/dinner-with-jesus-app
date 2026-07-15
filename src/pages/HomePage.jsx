@@ -68,46 +68,22 @@ const sectionSubStyle = {
   lineHeight: 1.5,
 }
 
+// get_or_create_tonight_session() (20260714000004_shared_dinner_session.sql)
+// is the single, atomic, server-side "lock tonight's verse" operation --
+// this used to be a separate client-side check-then-upsert (duplicated
+// four times across the app) with a real race: two near-simultaneous
+// callers could both pass the "not locked yet" check, then both upsert,
+// with the second silently overwriting the first caller's verse pick.
+// The RPC's insert-on-conflict-do-nothing makes that impossible. It's
+// also idempotent to call when a verse is already locked -- it just
+// returns the existing session -- so there's no separate "alreadyLocked"
+// branch to handle here anymore.
 async function lockVerseForGroup(groupId) {
   if (!groupId) return { error: 'No group found' }
-  const today = new Date().toISOString().split('T')[0]
-
-  // Check if already locked
-  const { data: existing } = await supabase
-    .from('group_verse')
-    .select('dinner_verse_id')
-    .eq('group_id', groupId)
-    .eq('verse_date', today)
-    .single()
-
-  if (existing?.dinner_verse_id) return { alreadyLocked: true }
-
-  // Pick a verse not yet discussed
-  const { data: historyData } = await supabase
-    .from('verse_history')
-    .select('dinner_verse_id')
-
-  const discussedIds = historyData?.map(d => d.dinner_verse_id) || []
-
-  const { data: allVerses } = await supabase
-    .from('dinner_verses')
-    .select('id')
-    .eq('active', true)
-    .limit(200)
-
-  if (!allVerses || allVerses.length === 0) return { error: 'No verses available' }
-
-  const available = discussedIds.length > 0
-    ? allVerses.filter(v => !discussedIds.includes(v.id))
-    : allVerses
-  const pool = available.length > 0 ? available : allVerses
-  const picked = pool[Math.floor(Math.random() * pool.length)]
-
-  const { error } = await supabase
-    .from('group_verse')
-    .upsert({ group_id: groupId, dinner_verse_id: picked.id, verse_date: today }, { onConflict: 'group_id,verse_date' })
-
-  if (error) return { error: 'Could not lock verse' }
+  const { data, error } = await supabase.rpc('get_or_create_tonight_session', {
+    group_id_input: groupId
+  })
+  if (error || !data || data.length === 0) return { error: 'Could not lock verse' }
   return { success: true }
 }
 
@@ -167,10 +143,7 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
     if (!group?.id) { showToast('You need a dinner circle first.'); return }
     setLockingVerse(true)
     const result = await lockVerseForGroup(group.id)
-    if (result.alreadyLocked) {
-      showToast("Tonight's verse is already set. 🙏")
-      setVerseLocked(true)
-    } else if (result.success) {
+    if (result.success) {
       showToast("Tonight's verse is set! Now share your invite code. 🙏")
       setVerseLocked(true)
     } else {
