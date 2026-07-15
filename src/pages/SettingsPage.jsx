@@ -55,7 +55,7 @@ async function lockVerseForGroup(groupId) {
 
 export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
   const { user, profile, signOut, updateProfile } = useAuth()
-  const { group, members, createGroup, joinGroup, leaveGroup, removeMember } = useFamily()
+  const { group, members, memberProfiles, createGroup, joinGroup, leaveGroup, removeMember } = useFamily()
 
   const [toast, setToast] = useState('')
   const [mode, setMode] = useState('none')
@@ -73,27 +73,16 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [accountSaving, setAccountSaving] = useState(false)
-  const [memberProfiles, setMemberProfiles] = useState([])
   const [removeConfirm, setRemoveConfirm] = useState(null) // { id, name } of member pending removal
   const [removing, setRemoving] = useState(false)
 
+  // memberProfiles (id + name only, never email) comes from useFamily(),
+  // which sources it from the get_my_group_members() RPC -- profiles
+  // has no same-group SELECT policy, so a direct query here would
+  // return nothing for anyone but the caller's own row.
   useEffect(() => {
     checkVerseLocked()
-    loadMemberProfiles()
   }, [group])
-
-  async function loadMemberProfiles() {
-    if (!group?.id) { setMemberProfiles([]); return }
-    try {
-      const { data } = await supabase
-        .from('profiles')
-        .select('id, name')
-        .eq('group_id', group.id)
-      setMemberProfiles(data || [])
-    } catch (err) {
-      setMemberProfiles([])
-    }
-  }
 
   async function checkVerseLocked() {
     if (!group?.id) return
@@ -178,8 +167,9 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
     if (result.error) {
       showToast(result.error)
     } else {
+      // removeMember() already reloads group/memberProfiles internally
+      // on success (see useFamily.js) -- no separate refresh needed here.
       showToast(`${removeConfirm.name} has been removed from the table.`)
-      await loadMemberProfiles()
     }
     setRemoveConfirm(null)
     setRemoving(false)

@@ -6,12 +6,14 @@ export function useFamily() {
   const { user } = useAuth()
   const [group, setGroup] = useState(null)
   const [members, setMembers] = useState([])
+  const [memberProfiles, setMemberProfiles] = useState([])
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
     if (!user) {
       setGroup(null)
       setMembers([])
+      setMemberProfiles([])
       setLoading(false)
       return
     }
@@ -33,6 +35,7 @@ export function useFamily() {
       if (!groupId) {
         setGroup(null)
         setMembers([])
+        setMemberProfiles([])
         setLoading(false)
         return
       }
@@ -46,14 +49,16 @@ export function useFamily() {
       if (!groupData) {
         setGroup(null)
         setMembers([])
+        setMemberProfiles([])
         setLoading(false)
         return
       }
 
-      const { data: memberProfiles } = await supabase
-        .from('profiles')
-        .select('name')
-        .eq('group_id', groupId)
+      // get_my_group_members() is a SECURITY DEFINER RPC (see
+      // 20260714000001_security_primitives.sql) -- profiles has no
+      // same-group SELECT policy, since that would expose every
+      // member's email to every other member. This returns only id+name.
+      const { data: groupMembers } = await supabase.rpc('get_my_group_members')
 
       setGroup({
         id: groupData.id,
@@ -61,11 +66,13 @@ export function useFamily() {
         invite_code: groupData.invite_code,
         isOwner: groupData.owner_id === user.id
       })
-      setMembers(memberProfiles?.map(p => p.name).filter(Boolean) || [])
+      setMembers(groupMembers?.map(p => p.name).filter(Boolean) || [])
+      setMemberProfiles(groupMembers || [])
 
     } catch (err) {
       setGroup(null)
       setMembers([])
+      setMemberProfiles([])
     }
     setLoading(false)
   }
@@ -102,23 +109,19 @@ export function useFamily() {
   async function joinGroup(inviteCode) {
     if (!user?.id) return { error: 'Not logged in' }
     try {
-      const { data: groupData, error } = await supabase
-        .from('groups')
-        .select('id, name')
-        .eq('invite_code', inviteCode.toUpperCase())
-        .single()
+      // join_group_by_invite_code() is a SECURITY DEFINER RPC (see
+      // 20260714000001_security_primitives.sql) -- authenticated users
+      // have no standing SELECT on groups.invite_code, since that would
+      // let anyone enumerate every group's code. The RPC does the
+      // lookup server-side and updates only the caller's own group_id.
+      const { data, error } = await supabase.rpc('join_group_by_invite_code', {
+        invite_code_input: inviteCode
+      })
 
-      if (error || !groupData) return { error: 'Code not found. Check and try again.' }
-
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .update({ group_id: groupData.id })
-        .eq('id', user.id)
-
-      if (profileError) return { error: 'Could not join group' }
+      if (error || !data || data.length === 0) return { error: 'Code not found. Check and try again.' }
 
       await loadGroup()
-      return { success: true, groupName: groupData.name }
+      return { success: true, groupName: data[0].group_name }
     } catch (err) {
       return { error: 'Something went wrong' }
     }
@@ -144,10 +147,15 @@ export function useFamily() {
   async function removeMember(memberId) {
     if (!user?.id || !group?.isOwner) return { error: 'Not authorized' }
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ group_id: null })
-        .eq('id', memberId)
+      // remove_group_member() is a SECURITY DEFINER RPC (see
+      // 20260714000001_security_primitives.sql) -- it verifies
+      // ownership server-side and touches only the target's group_id,
+      // never any other profile column. A plain client-side update to
+      // another user's profiles row has no policy permitting it once
+      // baseline RLS is applied.
+      const { error } = await supabase.rpc('remove_group_member', {
+        member_id_input: memberId
+      })
 
       if (error) return { error: 'Could not remove member' }
 
@@ -161,6 +169,7 @@ export function useFamily() {
   return {
     group,
     members,
+    memberProfiles,
     loading,
     reload: loadGroup,
     createGroup,
