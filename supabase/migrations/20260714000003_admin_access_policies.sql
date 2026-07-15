@@ -12,9 +12,8 @@
 --    tables that still have RLS disabled, would create policies that
 --    sit inert -- exactly the trap the original single-file draft of
 --    this migration warned about.
--- 3. Steve's UUID has been directly confirmed against auth.users (see
---    part 1's comment on is_admin()). Do not apply this migration
---    until that confirmation has happened.
+-- 3. Steve's UUID confirmed against auth.users (see part 1's comment on
+--    is_admin()) -- DONE, 2026-07-15: returned steve@onetengroup.ai.
 --
 -- WHAT THIS MIGRATION DOES
 -- Adds admin-only, additive permissive policies to the five tables

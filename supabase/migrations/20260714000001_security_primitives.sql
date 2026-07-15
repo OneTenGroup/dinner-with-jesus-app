@@ -3,12 +3,15 @@
 -- Status: NOT APPLIED TO PRODUCTION. Part 1 of 3. Review before running.
 --
 -- WHAT THIS MIGRATION DOES
--- Adds narrowly-scoped functions (is_admin() and four operation-oriented
--- RPCs) that the repaired client will call instead of querying tables
+-- Adds narrowly-scoped functions (is_admin() and five operation-oriented
+-- RPCs, the last covering the family_table view -- see section 6) that
+-- the repaired client will call instead of querying tables/views
 -- directly. It does NOT enable RLS, does NOT drop or narrow any existing
--- policy, and does NOT restrict any table currently reachable via
--- PostgREST. Every table this migration's functions touch is exactly as
--- open after this migration as before it.
+-- policy or view grant, and does NOT restrict any table or view
+-- currently reachable via PostgREST. Every relation this migration's
+-- functions touch is exactly as open after this migration as before it
+-- -- the actual access restriction (including revoking direct access to
+-- the family_table view) happens in part 2.
 --
 -- WHY THIS IS SPLIT OUT FROM BASELINE RLS
 -- The client currently reads/writes `groups`, `profiles`, and
@@ -38,16 +41,13 @@ begin;
 -- UUID the admin". SECURITY INVOKER (not DEFINER) since a literal
 -- auth.uid() comparison needs no elevated privilege.
 --
--- *** STEVE'S UUID IS NOT YET VERIFIED. ***
--- This is the same UUID that was previously hardcoded in App.jsx as
--- ADMIN_USER_ID. It must NOT be trusted merely because it existed in
--- old client code. Before this migration is approved, run:
---
---   select id, email, created_at from auth.users
---   where id = '28356e7e-067c-49a8-81a2-095576c432a7';
---
--- and have Steve confirm the returned email is his. If it is not,
--- replace the literal below with his verified UUID before applying.
+-- *** STEVE'S UUID IS VERIFIED (2026-07-15). ***
+-- select id, email, created_at from auth.users
+-- where id = '28356e7e-067c-49a8-81a2-095576c432a7';
+-- returned steve@onetengroup.ai, confirmed by Steve directly. This was
+-- the same UUID previously hardcoded in App.jsx as ADMIN_USER_ID, but
+-- it is not trusted on that basis -- it's trusted because it was
+-- independently confirmed against auth.users. This blocker is resolved.
 create or replace function public.is_admin()
 returns boolean
 language sql
@@ -60,9 +60,9 @@ $$;
 
 comment on function public.is_admin() is
   'Returns true only when the CALLING user is the app''s single admin '
-  'account. Zero-argument by design -- auth.uid() is the only identity '
-  'source. UUID pending Steve''s direct confirmation against auth.users '
-  'before the admin-access migration (part 3) is applied.';
+  'account (steve@onetengroup.ai, verified against auth.users '
+  '2026-07-15). Zero-argument by design -- auth.uid() is the only '
+  'identity source.';
 
 revoke all on function public.is_admin() from public;
 revoke all on function public.is_admin() from anon;
@@ -317,6 +317,102 @@ comment on function public.get_my_group_members() is
 revoke all on function public.get_my_group_members() from public;
 revoke all on function public.get_my_group_members() from anon;
 grant execute on function public.get_my_group_members() to authenticated;
+
+-- ============================================================
+-- 6. get_my_family_table() — replaces direct public.family_table SELECT
+-- ============================================================
+-- public.family_table is a view (owner: postgres, no security_invoker
+-- option) joining families + family_members + prayer_rotation. Because
+-- it has no security_invoker, it runs with the VIEW OWNER's privileges
+-- regardless of who queries it -- it does not inherit the caller's RLS
+-- restrictions on the underlying tables. Any role granted SELECT on
+-- this view can see every family's invite_code, every member's
+-- user_id/display_name/role/prayer_order, and the prayer rotation
+-- state for every family, not just their own.
+--
+-- A security_invoker view was considered and rejected: family_members'
+-- existing SELECT policy (kept, correctly scoped, in part 2 of this
+-- package) is `user_id = auth.uid()` -- a caller may only see their
+-- OWN membership row, not fellow members'. A security_invoker
+-- recreation of family_table would inherit that restriction and return
+-- only one row (the caller's own), not the full family roster the view
+-- is clearly meant to provide. That does not match the view's intended
+-- purpose, so per this migration's own decision rule (security_invoker
+-- only when the underlying policies already produce the intended
+-- visibility), the correct fix is: revoke all direct access to the
+-- view (done in part 2 of this package, where family_table's access is
+-- actually restricted) and replace it with this narrow RPC, which
+-- looks up the caller's family server-side and returns only that
+-- family's roster.
+--
+-- No client code anywhere in src/ currently queries `family_table`,
+-- `families`, `family_members`, or `prayer_rotation` directly
+-- (confirmed by grep) -- this RPC has no current caller to update. It
+-- exists so that if/when this parallel data model becomes active
+-- product surface, a safe access path is already in place rather than
+-- someone reaching for the raw view.
+create or replace function public.get_my_family_table()
+returns table(
+  family_id uuid,
+  family_name text,
+  invite_code text,
+  user_id uuid,
+  display_name text,
+  role text,
+  prayer_order int,
+  prayer_current_idx int
+)
+language plpgsql
+security definer
+set search_path = ''
+stable
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_family_id uuid;
+begin
+  if v_uid is null then
+    raise exception 'Not authenticated';
+  end if;
+
+  select fm.family_id into v_family_id
+  from public.family_members fm
+  where fm.user_id = v_uid
+  limit 1;
+
+  if v_family_id is null then
+    return; -- zero rows: caller isn't in a family
+  end if;
+
+  return query
+  select f.id, f.name, f.invite_code, fm.user_id, fm.display_name, fm.role,
+         fm.prayer_order, pr.current_idx
+  from public.families f
+  join public.family_members fm on fm.family_id = f.id
+  left join public.prayer_rotation pr on pr.family_id = f.id
+  where f.id = v_family_id;
+end;
+$$;
+
+comment on function public.get_my_family_table() is
+  'Server-side replacement for direct SELECT on the postgres-owned '
+  'view public.family_table (which has no security_invoker and would '
+  'otherwise return every family''s data to any caller granted access '
+  'to it). Returns only the roster of the CALLING user''s own family -- '
+  'invite_code, member ids/display names/roles/prayer order, and '
+  'prayer rotation state -- never another family''s rows.';
+
+revoke all on function public.get_my_family_table() from public;
+revoke all on function public.get_my_family_table() from anon;
+grant execute on function public.get_my_family_table() to authenticated;
+
+-- NOTE ON COLUMN TYPES: prayer_order and prayer_current_idx are
+-- declared `int` based on their names and the view definition alone --
+-- this repair pass has no live schema access to confirm the actual
+-- column types of family_members.prayer_order or
+-- prayer_rotation.current_idx. Verify these against
+-- information_schema.columns before applying; adjust the RETURNS
+-- TABLE types to match exactly if they differ (e.g. smallint, numeric).
 
 commit;
 

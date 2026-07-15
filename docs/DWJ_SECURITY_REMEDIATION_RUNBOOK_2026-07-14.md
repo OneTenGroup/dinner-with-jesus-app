@@ -1,7 +1,7 @@
 # Dinner with Jesus — Emergency Security Remediation & Safe Rollout Runbook
-**Date:** 2026-07-15
+**Date:** 2026-07-15 (updated same day: Steve UUID verified, family_table/time_verses resolved as views)
 **Branch:** `fix/dwj-post-launch-p1`
-**Status:** Preparation complete. **Nothing applied to any database. Nothing pushed. Nothing deployed.** Waiting on Steve's approval per Phase 9 below.
+**Status:** Preparation complete, including view-specific remediation. **Nothing applied to any database. Nothing pushed. Nothing deployed.** Waiting on Steve's approval per Section 18 below.
 
 ---
 
@@ -11,7 +11,9 @@ Production inspection (three read-only queries Steve ran against Supabase projec
 
 **There is no evidence of actual unauthorized access having occurred.** This is a policy-configuration finding, not a breach report — see Section 19 for what would and wouldn't constitute evidence either way.
 
-This runbook prepares a complete, staged remediation: three migrations (security primitives → baseline RLS → admin access), five new server-side RPC functions, the client changes needed to use them safely, a full test matrix, and a deployment order specifically designed so tightening RLS never happens before the client that depends on the new RPCs is live. **Nothing in this package has been applied, pushed, or deployed.** It is prepared for Steve's review and manual, staged execution.
+This runbook prepares a complete, staged remediation: three migrations (security primitives → baseline RLS → admin access), six new server-side RPC functions, the client changes needed to use them safely, a full test matrix, and a deployment order specifically designed so tightening RLS never happens before the client that depends on the new RPCs is live. **Nothing in this package has been applied, pushed, or deployed.** It is prepared for Steve's review and manual, staged execution.
+
+**Update (2026-07-15, same day):** Steve confirmed his admin UUID directly against `auth.users` (returned `steve@onetengroup.ai`) — that blocker is resolved. Steve also ran the metadata-inspection queries from Section 6 (as it then was) and confirmed both previously-unknown relations, `family_table` and `time_verses`, are **views owned by `postgres` with no `security_invoker` option** — meaning both run with the view owner's privileges regardless of caller, not the caller's own RLS. `family_table` is a confirmed, real exposure (it joins `families`/`family_members`/`prayer_rotation` and would hand every caller every family's invite code, member list, and prayer-rotation state). `time_verses` is confirmed pure public reference content over `bible_verses`. Both are now addressed in the migration package — see Sections 6–11 below, all updated in this revision.
 
 ---
 
@@ -32,6 +34,9 @@ From the three production query results Steve provided (RLS-enabled status, `pg_
 | `family_verse` | enabled | Both policies check only `auth.role() = 'authenticated'` despite being named "Family members can..." — no membership filter exists. |
 | `group_verse` | enabled | Same pattern as `family_verse`. |
 | `invites` | enabled | INSERT policy checks `invited_by = auth.uid()` but never verifies the inserter belongs to the `family_id` on the invite. |
+| `family_table` | N/A — view, no RLS-equivalent option | **Confirmed 2026-07-15.** A view (owner `postgres`, `reloptions: null` — no `security_invoker`) joining `families` + `family_members` + `prayer_rotation`. Runs with the *view owner's* privileges regardless of caller, so it does not inherit RLS from any of its three underlying tables. Any role granted `SELECT` on it can see every family's invite code, every member's `user_id`/`display_name`/`role`/`prayer_order`, and every family's prayer-rotation state — not just the caller's own family. |
+
+**Phase 4 coverage confirmation:** every relation the production inspection confirmed unsafe is addressed by the migration package — `profiles`, `notes`, `verse_history`, `groups`, `dinner_verses`, `analytics`, `announcements`, `families`, `family_verse`, `group_verse`, and `invites` in `20260714000002_emergency_baseline_rls.sql` (Section 8); `family_table` in the same file plus `get_my_family_table()` in `20260714000001_security_primitives.sql` (Sections 6–7). `family_members`, `prayer_rotation`, `faith_checkins`, and `onboarding` were verified already safe and intentionally left untouched (Section 3). `time_verses` was confirmed as reference content and hardened defensively (explicit `security_invoker` recreation + explicit read-only grants) even though its default exposure was lower-severity than the others. No relation from the three original production queries remains unaddressed.
 
 ## 3. Relations Confirmed Safe (no change made)
 
@@ -41,9 +46,11 @@ RLS enabled, every policy correctly scoped to the intended owner/member:
 
 `bible_books`: RLS enabled with **zero** policies — fully closed to everyone including admins. Not touched; see Section 20.
 
+`time_verses`: **confirmed 2026-07-15** — a view (owner `postgres`, no `security_invoker`) over `bible_verses` with no per-row user/family scoping in its definition (`id, book, chapter, verse, text, reference`). `bible_verses`' own `SELECT` policy is already `using (true)` — open to everyone — so, unlike `family_table`, recreating this view with `security_invoker = true` reproduces the *already-correct* intended visibility rather than changing it. Addressed in Section 8 by explicit recreation + grants, not left on its prior default (unscoped) grants.
+
 ## 4. Unknown Relations
 
-`family_table` (1 row) and `time_verses` (31,179 rows) appeared in the grants and row-count query results but were **absent from both the RLS-status and `pg_policies` results** — most likely because they are views (the RLS-status query filters `relkind = 'r'`, ordinary tables only) rather than base tables, but this is not confirmed. See Section 6 for the inspection SQL prepared for Steve to run; no remediation SQL has been written for either relation, per the explicit instruction not to finalize until their metadata is known.
+**Resolved 2026-07-15.** Both `family_table` and `time_verses` are confirmed views owned by `postgres`, `rls_enabled: false` / `rls_forced: false` (expected for views — RLS is a table-level concept), `reloptions: null` (no `security_invoker`). Full definitions and the remediation chosen for each are in Sections 2–3 above and Sections 6–11 below. No relation remains in an unknown state from the original three production queries. See Section 20 for the one residual unknown this pass cannot resolve (whether anything outside this repository depends on either view).
 
 ## 5. Current and Parallel Data Models
 
@@ -59,12 +66,13 @@ A second, parallel schema exists in production with small amounts of real data a
 |---|---|---|
 | `profiles`, `groups`, `group_verse`, `notes`, `verse_history`, `onboarding`, `dinner_verses`, `bible_verses`, `feeling_verses`, `analytics`, `announcements` | **A** — actively used by current client | Confirmed via `.from()`/`.rpc()` grep across all of `src/` |
 | `families`, `family_members`, `family_verse`, `invites`, `prayer_rotation`, `faith_checkins`, `bible_books` | **C** — populated, but no current-client call site found | Row counts >0 (except `invites`, `prayer_rotation`, `faith_checkins` at 0) confirm real or test data exists; treated as live per Phase 2 regardless |
-| `family_table`, `time_verses` | **E** — unknown | Relation type and RLS status not yet confirmed (Section 4) |
-| *(none)* | **B** — used by a DB function/trigger/view/Edge Function | No Edge Functions exist in this repo (`supabase/functions/` absent, no `functions.invoke` calls in `src/`). Whether any parallel-model table is referenced by a database-side trigger or function **cannot be determined from this repository** — that visibility requires direct database access this session does not have. Flagged as an open question for Steve, not assumed either way. |
+| `family_table` | **C** — a view over the class-C parallel model, populated (1 row), no current-client call site found | Confirmed 2026-07-15 as a `postgres`-owned view; no `.from('family_table')` anywhere in `src/` |
+| `time_verses` | **D** — reference content, no current-client call site found | Confirmed 2026-07-15 as a `postgres`-owned view over `bible_verses`; `HomePage.jsx`'s equivalent "verse for this moment" feature queries `bible_verses` directly instead, not this view |
+| *(none)* | **B** — used by a DB function/trigger/view/Edge Function | No Edge Functions exist in this repo (`supabase/functions/` absent, no `functions.invoke` calls in `src/`). Whether any parallel-model table or either view is referenced by a database-side trigger or function **cannot be determined from this repository** — that visibility requires direct database access this session does not have. Flagged as an open question for Steve, not assumed either way. |
 
 ---
 
-## 6. Phase 1 — Inspection SQL for Unknown Relations (read-only, for Steve to run)
+## 6. Phase 1 — Inspection SQL for family_table / time_verses (RUN, results below — kept for reference/reproducibility)
 
 ```sql
 -- Relation type + owner
@@ -132,11 +140,28 @@ from pg_trigger
 where tgrelid::regclass::text in ('public.family_table', 'public.time_verses');
 ```
 
-**Decision tree once results are in (do not apply any of this without re-confirming against the actual result):**
-- **If `family_table` is a view** exposing private family data: check whether it was created with `security_invoker = true`. If not (or if unsupported on the project's PG version), a view defined by a superuser/owner executes with the *view owner's* privileges regardless of the querying user's RLS — meaning it can leak data even though its underlying tables have correct RLS. Do not assume a view is safe merely because its underlying tables are. Correction: recreate as a `security_invoker` view, or replace with a narrow RPC (same pattern as Section 8).
-- **If `family_table` is a base table**: enable RLS and add exact family-membership policies (same pattern as `family_members`).
-- **If `family_table` is a materialized view**: determine whether it contains private data; if so, remove direct anon/authenticated access and expose only through a narrow authorized interface — materialized views cannot have RLS policies of their own.
-- **For `time_verses`**: if it is confirmed to be pure public reference content (which its row count and lack of any owner/user column visible in the grants query suggests, but does not confirm), grant only the minimum required `SELECT` and revoke unnecessary `INSERT`/`UPDATE`/`DELETE` — same treatment as `bible_verses`. Do not finalize this until the column list confirms there's no user-scoped data mixed in.
+**Results (2026-07-15) and which decision-tree branch applied:**
+
+Both relations came back as **ordinary views** (`relkind = 'v'`), owner `postgres`, `reloptions: null` (no `security_invoker`):
+
+```sql
+-- public.family_table
+SELECT f.id AS family_id, f.name AS family_name, f.invite_code,
+       fm.user_id, fm.display_name, fm.role, fm.prayer_order,
+       pr.current_idx AS prayer_current_idx
+FROM public.families f
+JOIN public.family_members fm ON fm.family_id = f.id
+LEFT JOIN public.prayer_rotation pr ON pr.family_id = f.id;
+
+-- public.time_verses
+SELECT id, book, book_abbr, book_order, chapter, verse,
+       text_niv AS text, chapter || ':' || verse AS reference
+FROM public.bible_verses
+ORDER BY book_order, chapter, verse;
+```
+
+- **`family_table` → view exposing private family data, branch taken: replace with a narrow RPC, do not recreate as `security_invoker`.** Reason it's *not* a simple `security_invoker` recreation: `family_members`' own `SELECT` policy (already correctly scoped, kept as-is in Section 8) is `user_id = auth.uid()` — a caller may see only their *own* membership row, not fellow members'. A `security_invoker` version of this view would inherit that restriction and return exactly one row per caller (their own), not the family roster the view is clearly meant to provide — it would not "produce the exact intended family-member visibility" that Option A requires. So: direct access to the view is revoked entirely (Section 8), and `public.get_my_family_table()` (Section 7) — `SECURITY DEFINER`, looks up the caller's family server-side, returns only that family's rows — replaces it.
+- **`time_verses` → confirmed pure public reference content, branch taken: `security_invoker` recreation.** Its definition has no user/family-scoping column at all, and the table it reads from (`bible_verses`) already has an open `using (true)` `SELECT` policy — recreating with `security_invoker = true` reproduces that same, already-correct, intended-open visibility. `security_invoker` views require PostgreSQL 15+; not directly confirmed against the live project in this session (see Section 8's migration comment for the fail-closed behavior if unsupported, and the RPC fallback to use instead).
 
 ---
 
@@ -145,11 +170,12 @@ where tgrelid::regclass::text in ('public.family_table', 'public.time_verses');
 **File:** `supabase/migrations/20260714000001_security_primitives.sql`
 
 Adds, without restricting any existing access:
-- `public.is_admin()` — zero-argument, `SECURITY INVOKER`, `search_path = ''`. Same UUID as before; **Steve's UUID is not yet verified** (Section 15).
+- `public.is_admin()` — zero-argument, `SECURITY INVOKER`, `search_path = ''`. **UUID verified 2026-07-15** — `steve@onetengroup.ai` (Section 16).
 - `public.join_group_by_invite_code(invite_code_input text)` — `SECURITY DEFINER`. Exact-match lookup, updates only the caller's own `profiles.group_id`.
 - `public.get_guest_table_by_invite_code(invite_code_input text)` — `SECURITY DEFINER`. Granted to `anon` + `authenticated` (unauthenticated guest access is a confirmed, load-bearing route in `App.jsx`, not speculative). Returns only the fields `GuestTablePage.jsx` renders.
 - `public.remove_group_member(member_id_input uuid)` — `SECURITY DEFINER`. Verifies caller owns the target's group; touches only `group_id`; refuses to remove the owner or the caller.
 - `public.get_my_group_members()` — `SECURITY DEFINER`. Returns `id, name` only (never email) for the caller's own group.
+- `public.get_my_family_table()` — `SECURITY DEFINER`. **New in this revision.** Replaces direct `SELECT` on the `family_table` view (Section 6). Looks up the caller's `family_id` via `family_members`, returns only that family's roster (`family_id, family_name, invite_code, user_id, display_name, role, prayer_order, prayer_current_idx`) — never another family's rows. Column types for `prayer_order`/`prayer_current_idx` are inferred as `int` from naming alone and flagged in the migration file for verification against the live schema before applying.
 
 Full source is in the migration file itself (see repo). Every function is `revoke all ... from public` + explicit `anon`/`authenticated` grants stated individually, not left implicit.
 
@@ -157,11 +183,13 @@ Full source is in the migration file itself (see repo). Every function is `revok
 
 **File:** `supabase/migrations/20260714000002_emergency_baseline_rls.sql`
 
-Enables RLS and/or replaces unsafe policies on: `profiles`, `notes`, `verse_history`, `groups`, `group_verse`, `dinner_verses`, `analytics`, `announcements`, `families`, `family_verse`, `invites`. Full source in the migration file. Highlights:
+Enables RLS and/or replaces unsafe policies on: `profiles`, `notes`, `verse_history`, `groups`, `group_verse`, `dinner_verses`, `analytics`, `announcements`, `families`, `family_verse`, `invites`. Also now hardens the two views (`family_table`, `time_verses`) confirmed in Section 6. Full source in the migration file. Highlights:
 - `profiles` is deliberately **tighter** than what existed before RLS was disabled — same-group profile visibility now goes through `get_my_group_members()` (id+name only), so no policy grants any user visibility into another user's email.
 - `groups`' invite-code lookup no longer needs a standing policy at all, since both the join flow and guest flow now go through `SECURITY DEFINER` RPCs that read the table as owner.
 - `dinner_verses` needs no `anon` read policy — the guest RPC handles that path too.
-- **No rollback script exists for this migration.** See Section 18.
+- **`family_table`**: `revoke all ... from public, anon, authenticated` — no role retains direct `SELECT`. Replacement path is `get_my_family_table()` (Section 7).
+- **`time_verses`**: recreated with `create or replace view ... with (security_invoker = true)`, then `revoke all` followed by `grant select` to both `anon` and `authenticated` — explicit read-only, matching `bible_verses`' own already-correct open-read posture.
+- **No rollback script exists for this migration.** See Section 19.
 
 ## 9. Admin Access Migration
 
@@ -211,13 +239,22 @@ Adds the same 10 admin-only additive policies as the original single-file migrat
 
 `notes`: RLS enabled, all 4 pre-existing policies left as-is (already correctly `user_id = auth.uid()`-scoped).
 
+`family_table` and `time_verses` are **views**, not tables — they have no RLS policies of their own (RLS is a table-level mechanism); their access is controlled entirely by grants. See Section 12.
+
 ## 12. Every Grant Changed
 
-None of the three migrations change table-level `GRANT`/`REVOKE` on the tables themselves — every change is at the function or policy level. Function-level grants (all new): `EXECUTE` on the five new functions, explicitly scoped per function (see Section 7). A **separate, optional** table-grant hardening review is proposed in Section 13 but not included in the three-migration package and not applied.
+Table-level grants changed by the migration package (new in this revision — the original draft changed none):
+
+| Relation | Grants revoked | Grants granted |
+|---|---|---|
+| `public.family_table` (view) | `ALL` from `public`, `anon`, `authenticated` | *(none — no role retains direct access; use `get_my_family_table()` instead)* |
+| `public.time_verses` (view, recreated with `security_invoker = true`) | `ALL` from `public`, `anon`, `authenticated` (re-revoked after recreation, defensive) | `SELECT` to `anon`; `SELECT` to `authenticated` — no `INSERT`/`UPDATE`/`DELETE`/`TRUNCATE`/`REFERENCES`/`TRIGGER` to any role |
+
+Function-level grants (all new, all three migrations): `EXECUTE` on six functions in part 1 (five original + `get_my_family_table()`), explicitly scoped per function (see Section 7) — `is_admin()`, `join_group_by_invite_code()`, `remove_group_member()`, and `get_my_group_members()` to `authenticated` only; `get_guest_table_by_invite_code()` to `anon` + `authenticated`; `get_my_family_table()` to `authenticated` only. A **separate, optional** table-grant hardening review for the remaining base tables is proposed in Section 13 but not included in the three-migration package and not applied.
 
 ## 13. Table-Grant Hardening (Phase 6 — proposed only, not applied, not part of the 3 required migrations)
 
-The grants query showed `anon`/`authenticated` holding `TRUNCATE`, `REFERENCES`, and `TRIGGER` on every public table — PostgREST never issues any of these operations, so they're unused surface, not a functional requirement. Verified: the five new RPCs are `SECURITY DEFINER` and execute with the function owner's privileges, not the caller's table grants, so revoking these does not affect the RPCs.
+The grants query showed `anon`/`authenticated` holding `TRUNCATE`, `REFERENCES`, and `TRIGGER` on every public table — PostgREST never issues any of these operations, so they're unused surface, not a functional requirement. Verified: the `SECURITY DEFINER` RPCs from part 1 (including `get_my_family_table()`) execute with the function owner's privileges, not the caller's table grants, so revoking these does not affect them.
 
 ```sql
 -- PROPOSED, NOT APPLIED. Defense-in-depth, not required for the RLS fix.
@@ -234,7 +271,9 @@ begin
 end $$;
 
 -- Pure reference tables should not be writable via the API at all.
--- time_verses intentionally excluded pending Section 6's inspection.
+-- time_verses is excluded here -- it's already handled explicitly in
+-- 20260714000002_emergency_baseline_rls.sql (Section 8), which revokes
+-- ALL then grants only SELECT to anon/authenticated on that view.
 revoke insert, update, delete on public.bible_verses from anon, authenticated;
 revoke insert, update, delete on public.feeling_verses from anon, authenticated;
 revoke insert, update, delete on public.dinner_verses from anon, authenticated;
@@ -253,6 +292,7 @@ public.join_group_by_invite_code(invite_code_input text) returns table(group_id 
 public.get_guest_table_by_invite_code(invite_code_input text) returns table(group_name text, verse_ref text, category text, verse_text text, context_text text, question_level_1 text, question_level_2 text, prayer_level_1 text)
 public.remove_group_member(member_id_input uuid) returns boolean
 public.get_my_group_members() returns table(id uuid, name text)
+public.get_my_family_table() returns table(family_id uuid, family_name text, invite_code text, user_id uuid, display_name text, role text, prayer_order int, prayer_current_idx int)
 ```
 
 ## 15. Client Call Sites Changed
@@ -263,16 +303,17 @@ public.get_my_group_members() returns table(id uuid, name text)
 | `src/pages/GuestTablePage.jsx` | `loadGuestTable()` now calls `rpc('get_guest_table_by_invite_code')` instead of three sequential `.from('groups')` / `.from('group_verse')` / `.from('dinner_verses')` queries. |
 | `src/pages/SettingsPage.jsx` | Removed its own local `loadMemberProfiles()` (`.from('profiles').select('id, name').eq('group_id', ...)`, which would return nothing under baseline RLS); now consumes `memberProfiles` from `useFamily()`. |
 
+**`family_table` / `time_verses`: no client files changed.** Confirmed by grep across all of `src/` — no `.from('family_table')`, `.from('time_verses')`, `.from('families')`, `.from('family_members')`, or `.from('prayer_rotation')` call exists anywhere in current client source. `get_my_family_table()` and the recreated `time_verses` view have no current caller to update; they exist so a safe access path is already in place if/when this parallel data model becomes active product surface.
+
 **Confirmed by re-grepping after all changes:** no remaining `.from('groups')...eq('invite_code', ...)` outside `useFamily.js`'s own `createGroup()` (which sets its own row's `invite_code`, not a lookup); no remaining `.from('profiles').update(...)` targeting another user's row (both instances in `AdminPage.jsx` are intentional, admin-only, and governed by the admin migration's policies); no remaining client-side hardcoded admin UUID check (removed in the prior repair pass, commit `fa025eb`); `App.jsx`/`AdminPage.jsx` already called zero-argument `is_admin()` before this pass.
 
-## 16. Steve UUID Verification Requirement
+## 16. Steve UUID Verification — RESOLVED (2026-07-15)
 
-**Not yet done — no production database access in this session.** Run:
 ```sql
 select id, email, created_at from auth.users
 where id = '28356e7e-067c-49a8-81a2-095576c432a7';
 ```
-Steve must confirm the returned email is his before `20260714000003_admin_access_policies.sql` is approved. If it doesn't match, update the literal in `is_admin()` (part 1) before applying anything.
+**Run by Steve. Returned `steve@onetengroup.ai`, confirmed by Steve directly.** This blocker is resolved — the UUID is trusted because it was independently verified against `auth.users`, not because it previously existed in client code. `is_admin()` (part 1) and its comment have been updated to reflect this; `20260714000003_admin_access_policies.sql`'s prerequisite checklist item for this is marked done.
 
 ## 17. Security Test Matrix
 
@@ -287,6 +328,12 @@ await supabase.rpc('get_guest_table_by_invite_code', { invite_code_input: '<VALI
 await supabase.rpc('get_guest_table_by_invite_code', { invite_code_input: 'ZZZZZZ' })          // expect: zero rows, no distinguishing error
 await supabase.from('analytics').select('*')        // expect: [] or error
 await supabase.from('announcements').insert({ message: 'test', active: true })  // expect: error (RLS denies)
+
+// View-specific (new)
+await supabase.from('family_table').select('*')                              // expect: [] or error — no direct access for any role
+await supabase.rpc('get_my_family_table')                                    // expect: error — auth.uid() is null, function raises "Not authenticated"
+await supabase.from('time_verses').select('*').limit(5)                      // expect: rows returned — public reference content
+await supabase.from('time_verses').update({ text: 'x' }).eq('id', ANY_ID)    // expect: error — no write grant for anon
 ```
 
 **Authenticated User A** (real test account):
@@ -300,6 +347,15 @@ await supabase.rpc('remove_group_member', { member_id_input: UNRELATED_USER_ID }
 await supabase.rpc('is_admin')                                // expect: false
 await supabase.from('analytics').select('*')                  // expect: [] or error
 await supabase.from('announcements').update({ message: 'x' }).eq('active', true)  // expect: error
+
+// View-specific (new) -- requires A to be a family_members row for some family
+await supabase.from('family_table').select('*')                      // expect: [] or error — direct access revoked for authenticated too
+await supabase.rpc('get_my_family_table')                            // expect: only A's own family's rows (own invite_code, own family's member roster)
+// If A belongs to Family 1 and a second test family (Family 2) exists with a
+// different invite_code, confirm Family 2's invite_code/members never appear
+// in A's get_my_family_table() result.
+await supabase.from('time_verses').select('*').limit(5)              // expect: rows returned — same open read as anon
+await supabase.from('time_verses').insert({ id: 1, book: 'x' })      // expect: error — no INSERT grant for authenticated
 ```
 
 **Group Owner** (owns a group with ≥1 other member):
@@ -311,9 +367,15 @@ await supabase.rpc('get_my_group_members')                                      
 
 **Guest** (no session, valid vs invalid code — see Anonymous section above): valid code returns only verse content + group name; invalid code returns zero rows with no hint distinguishing "malformed" from "not found."
 
+**Authenticated User B** (real test account, different family than User A, if `family_members` has ≥2 distinct families to test with):
+```js
+await supabase.rpc('get_my_family_table')   // expect: only B's own family's rows -- never A's invite_code, A's family's member list, or A's prayer_order/prayer_current_idx
+await supabase.from('family_table').select('*')  // expect: [] or error, same as every other role
+```
+
 **Steve (Admin)**, after Section 9 is applied and Section 16 is confirmed:
 ```js
-await supabase.rpc('is_admin')                       // expect: true
+await supabase.rpc('is_admin')                       // expect: true (identity: steve@onetengroup.ai, 28356e7e-067c-49a8-81a2-095576c432a7)
 await supabase.from('profiles').select('*')          // expect: all users, via admin policy
 await supabase.from('analytics').select('*')          // expect: all events
 await supabase.from('announcements').insert({ message: 'test', active: true })  // expect: success
@@ -329,10 +391,10 @@ await supabase.rpc('is_admin')                        // expect: false
 ## 18. Safe Deployment Order
 
 **A.** Read the RLS-status/policies/grants queries again immediately before applying anything, to confirm nothing has changed in production since this package was prepared.
-**B.** Review Supabase Auth/API/Postgres logs per Section 19's checklist, before making any change, so a pre-existing baseline is on record.
-**C.** Verify Steve's UUID (Section 16).
-**D.** Apply `20260714000001_security_primitives.sql` **only**. This adds the RPCs and `is_admin()` without restricting any current access.
-**E.** Test each RPC directly per Section 17's snippets, run against the *currently deployed* client's session (which won't call them yet, but they're now callable directly for verification): valid/invalid join code, guest lookup valid/invalid, `get_my_group_members`, authorized/unauthorized `remove_group_member`, `is_admin` true/false.
+**B.** Review Supabase Auth/API/Postgres logs per Section 21's checklist, before making any change, so a pre-existing baseline is on record.
+**C.** ~~Verify Steve's UUID~~ — **done** (Section 16).
+**D.** Apply `20260714000001_security_primitives.sql` **only**. This adds the RPCs and `is_admin()` without restricting any current access. Before this step, confirm the live Postgres version (`select version();`) to verify `security_invoker` view support ahead of step H (see the migration file's comment on `time_verses`).
+**E.** Test each RPC directly per Section 17's snippets, run against the *currently deployed* client's session (which won't call them yet, but they're now callable directly for verification): valid/invalid join code, guest lookup valid/invalid, `get_my_group_members`, authorized/unauthorized `remove_group_member`, `is_admin` true/false, `get_my_family_table` for a user who is/isn't in `family_members`.
 **F.** Push and deploy the repaired client (this branch) that calls the new RPCs.
 **G.** Smoke-test production before lockdown: create a table, join a table, guest table view, list members, remove a member, journal save/edit/delete, admin access, normal-user admin denial.
 **H.** Apply `20260714000002_emergency_baseline_rls.sql`.
@@ -340,7 +402,7 @@ await supabase.rpc('is_admin')                        // expect: false
 **J.** Apply `20260714000003_admin_access_policies.sql`.
 **K.** Confirm: Steve's admin access works, normal users remain denied, guests receive only intended fields.
 **L.** Test the installed Google Play app (per the original audit, this is believed to be a TWA wrapper loading the live web app — if so, step F already covers it; confirm this assumption before assuming no separate release is needed).
-**M.** Continue reviewing logs for 24–72 hours after deployment per Section 19.
+**M.** Continue reviewing logs for 24–72 hours after deployment per Section 21.
 
 If any technical blocker prevents deploying the client before baseline RLS (step F before H), stop and report the specific blocker — do not improvise a different order. No such blocker is known at the time of writing.
 
@@ -362,8 +424,8 @@ Never: disable RLS, or restore a `using(true)`/`with_check(true)`/`authenticated
 
 ## 20. Remaining Product Decisions (for Steve, not resolved by this pass)
 
-- **Is the `families`/`family_members` schema active, legacy, or an in-progress rewrite?** This determines whether it should eventually be removed, finished, or left as-is. Not resolvable from RLS output alone (Section 5).
-- **`family_table` / `time_verses` metadata** (Section 6) — needs Steve to run the inspection SQL before any fix is written for either.
+- **Is the `families`/`family_members` schema active, legacy, or an in-progress rewrite?** This determines whether it should eventually be removed, finished, or left as-is. Not resolvable from RLS output alone (Section 5). `family_table`'s remediation (Section 6) doesn't depend on this answer — the RPC replacement is safe either way — but it's still worth Steve's eventual decision.
+- **Does anything outside this repository depend on `family_table` or `time_verses`?** Confirmed: nothing inside this repo does (no client call site, no Edge Function). Cannot rule out an external client, internal tool, or integration this session has no visibility into. If one exists and depends on direct `SELECT` of `family_table`, it will break once Section 8 is applied (by design — that access was never safe) and would need to be migrated to `get_my_family_table()`.
 - **`bible_books` is fully closed (RLS on, zero policies).** Not currently read by any client code, so not believed to be an active bug — confirm nothing outside this repo depends on it before deciding whether to add a read policy.
 - **`verse_history`'s "avoid repeating a verse" pool is now user-scoped, not global.** Before this pass, `HomePage.jsx`/`SettingsPage.jsx`/`TablePage.jsx`'s `lockVerseForGroup()`/`loadVerse()` queried `verse_history` with no filter — under disabled RLS this silently returned *every* user's discussed-verse history, meaning the "pick an undiscussed verse" pool was accidentally global rather than personal. Once baseline RLS is applied, that same unfiltered query will only ever return the *calling user's own* history (RLS filters transparently; the code doesn't error, it just receives less data). This is very likely closer to the originally intended behavior (a verse someone else discussed shouldn't exclude it for you), but it is a real behavior change worth Steve's awareness — not a bug introduced by this pass, but a side effect of no longer being able to see other users' data. No code change is proposed for this; flagging it is the deliverable.
 - **Invite-code entropy** (Section 7's migration-file note): `Math.random()`, not a CSPRNG, 32^6 keyspace. Not fixed in this pass; recommended as a fast-follow once the RPC choke points exist to add rate limiting alongside it.
@@ -388,8 +450,8 @@ Look for, in Supabase's Auth/API/Postgres logs:
 
 | Check | Result |
 |---|---|
-| `npm run build` | **Passed.** Client compiles cleanly with all RPC-based changes; bundle size unchanged (~514 kB / 143 kB gzipped, same pre-existing chunk-size warning). |
-| `npm audit` | **Ran.** Same 3 pre-existing vulnerabilities (2 moderate, 1 high) in the dev-only `esbuild → vite → vite-plugin-pwa` chain, unchanged from the original audit baseline — not introduced by this pass, not fixed by it (fixing requires a breaking Vite major-version upgrade, out of scope). |
+| `npm run build` | **Passed**, including a re-run after this revision's migration-only changes (no client files touched in the `family_table`/`time_verses` revision, so this re-confirms nothing regressed). Bundle size unchanged (~514 kB / 143 kB gzipped, same pre-existing chunk-size warning). |
+| `npm audit` | **Ran**, including a re-run after this revision. Same 3 pre-existing vulnerabilities (2 moderate, 1 high) in the dev-only `esbuild → vite → vite-plugin-pwa` chain, unchanged from the original audit baseline — not introduced by this pass, not fixed by it (fixing requires a breaking Vite major-version upgrade, out of scope). |
 | Typecheck | **N/A** — this is a JavaScript (JSX) project; no TypeScript is configured. |
 | Lint | **NOT TESTED** — no ESLint config exists anywhere in this project (confirmed absent in the original audit and unchanged since). |
 | Unit / integration tests | **NOT TESTED** — no test framework or test files exist anywhere in this project. |
@@ -400,10 +462,10 @@ Look for, in Supabase's Auth/API/Postgres logs:
 
 ## 23. Files Changed
 
-**Migrations added:**
-- `supabase/migrations/20260714000001_security_primitives.sql`
-- `supabase/migrations/20260714000002_emergency_baseline_rls.sql`
-- `supabase/migrations/20260714000003_admin_access_policies.sql`
+**Migrations added, then revised in place (2026-07-15, same day) to add the `family_table`/`time_verses` view fixes and the verified Steve UUID:**
+- `supabase/migrations/20260714000001_security_primitives.sql` — added `get_my_family_table()`; marked `is_admin()`'s UUID verified.
+- `supabase/migrations/20260714000002_emergency_baseline_rls.sql` — added the `family_table` grant revocation and the `time_verses` `security_invoker` view recreation + grants.
+- `supabase/migrations/20260714000003_admin_access_policies.sql` — updated its prerequisite checklist to reflect the UUID verification being done; no policy content changed.
 
 **Migrations removed** (restructured into the three files above, per the staged-rollout requirement):
 - `supabase/migrations/20260714000000_harden_admin_access.sql`

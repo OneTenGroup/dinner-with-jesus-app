@@ -41,15 +41,30 @@
 --                      auth.uid() but never verifies the inserter actually
 --                      belongs to the family_id on the invite
 --
+-- Metadata inspection (2026-07-15) additionally confirmed:
+--   family_table      A VIEW (owner: postgres, no security_invoker),
+--                      joining families + family_members + prayer_rotation.
+--                      Runs with the view owner's privileges regardless of
+--                      caller -- exposes every family's invite_code, every
+--                      member's user_id/display_name/role/prayer_order, and
+--                      prayer rotation state to anyone granted SELECT on it.
+--   time_verses       A VIEW (owner: postgres, no security_invoker) over
+--                      bible_verses -- public reference content, but same
+--                      "runs as owner" risk in principle, so handled
+--                      explicitly rather than left on its default grants.
+--
 -- NOT touched by this migration (verified already correctly scoped by
 -- production inspection -- see docs/DWJ_SECURITY_REMEDIATION_RUNBOOK_
 -- 2026-07-14.md Section 3 for the full per-table evidence):
 --   family_members, prayer_rotation, faith_checkins, onboarding,
 --   bible_verses, feeling_verses
---
--- Deliberately NOT addressed by this migration (metadata unknown --
--- see Phase 1 inspection SQL in the runbook doc):
---   family_table, time_verses
+-- (family_members and prayer_rotation's own direct-table policies are
+-- untouched and remain correctly restrictive -- family_table's fix
+-- below works by revoking the VIEW's access and routing through
+-- get_my_family_table(), a SECURITY DEFINER function from part 1 that
+-- deliberately looks past those restrictive policies in a controlled,
+-- caller-scoped way. Direct queries against family_members/
+-- prayer_rotation remain exactly as restricted as before.)
 --
 -- bible_books: RLS is enabled with zero policies (fully closed to
 -- everyone, including admins). No `.from('bible_books')` call exists
@@ -295,11 +310,88 @@ create policy "invites_insert_family_member" on public.invites
     )
   );
 
+-- ============================================================
+-- FAMILY_TABLE (view)
+-- ============================================================
+-- public.family_table is owned by postgres with no security_invoker
+-- option, so it runs with the OWNER's privileges regardless of caller
+-- -- it does not inherit RLS from families/family_members/
+-- prayer_rotation. A security_invoker recreation was considered and
+-- rejected (see part 1's get_my_family_table() comment: family_members'
+-- own SELECT policy is user_id = auth.uid()-scoped, so a
+-- security_invoker view would only ever return the caller's own single
+-- row, not the family roster the view is meant to provide -- it would
+-- not "produce the exact intended family-member visibility"). Chosen
+-- fix: revoke all direct access to the view; the replacement path is
+-- get_my_family_table() (part 1), which returns only the caller's own
+-- family's rows.
+--
+-- No current client code depends on direct SELECT of family_table
+-- (confirmed by grep across src/); no Edge Functions exist in this
+-- repo. Whether anything outside this repository depends on it cannot
+-- be ruled out from here -- flagged for Steve to confirm before
+-- applying (see the runbook's Remaining Unknowns).
+revoke all on public.family_table from public;
+revoke all on public.family_table from anon;
+revoke all on public.family_table from authenticated;
+-- Deliberately no grant statement follows -- no role should have
+-- direct SELECT on this view. Access is get_my_family_table() only.
+
+-- ============================================================
+-- TIME_VERSES (view)
+-- ============================================================
+-- public.time_verses is owned by postgres with no security_invoker
+-- option, same as family_table -- but it's a single-table view over
+-- bible_verses with no per-row user/family scoping in its definition
+-- (id, book, chapter, verse, text, reference), and bible_verses'
+-- existing SELECT policy is already `using (true)` -- open read for
+-- everyone. Recreating this view with security_invoker = true
+-- therefore DOES produce the intended visibility (identical to
+-- bible_verses' own, already-correct policy), so -- unlike
+-- family_table -- the security_invoker view path is the right choice
+-- here, not an RPC.
+--
+-- security_invoker views require PostgreSQL 15+. Supabase projects
+-- created since 2023 run PG15+ by default, but this was not directly
+-- confirmed against the live project in this session -- run
+-- `select version();` before applying. If unsupported, this CREATE
+-- VIEW statement will error and the whole transaction rolls back
+-- (fail-closed, not a partial apply) -- in that case, replace this
+-- section with a get_time_verses() SECURITY DEFINER RPC using the
+-- same pattern as get_my_family_table(), which works on any PG version.
+create or replace view public.time_verses
+with (security_invoker = true)
+as
+select
+  id,
+  book,
+  book_abbr,
+  book_order,
+  chapter,
+  verse,
+  text_niv as text,
+  chapter || ':' || verse as reference
+from public.bible_verses
+order by book_order, chapter, verse;
+
+revoke all on public.time_verses from public;
+revoke all on public.time_verses from anon;
+revoke all on public.time_verses from authenticated;
+
+-- Read-only reference content for everyone, matching bible_verses'
+-- own existing policy. No insert/update/delete/truncate/references/
+-- trigger grant follows for any role.
+grant select on public.time_verses to anon;
+grant select on public.time_verses to authenticated;
+
 commit;
 
 -- ============================================================
 -- VERIFICATION REQUIRED IMMEDIATELY AFTER APPLYING
 -- ============================================================
--- Run the full anon / User-A / User-B security matrix (see
--- docs/DWJ_SECURITY_REMEDIATION_RUNBOOK_2026-07-14.md, Section 16)
+-- Run the full anon / User-A / User-B security matrix, INCLUDING the
+-- view-specific tests (family_table inaccessible directly to anyone;
+-- get_my_family_table() returns only the caller's own family; anon can
+-- SELECT time_verses but not write to it) -- see
+-- docs/DWJ_SECURITY_REMEDIATION_RUNBOOK_2026-07-14.md, Section 17,
 -- before proceeding to 20260714000003_admin_access_policies.sql.
