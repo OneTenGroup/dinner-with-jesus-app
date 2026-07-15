@@ -136,3 +136,71 @@ The one item that is **not** a Vercel-vs-Play question at all: the Supabase SQL 
 ## 16. Confirmation
 
 **Nothing was pushed. Nothing was deployed. No Play Store release was published. No production database, RLS policy, or Google Play Console setting was changed.** All work is local commits on `fix/dwj-post-launch-p1`. The prepared SQL migration exists only as a file in this repository and has not been executed against any database.
+
+---
+
+## 17. Revision (2026-07-15) — is_admin() Hardened; Migration Made Re-Runnable; Git Hygiene
+
+A design review of the prepared (still-unapplied) migration found that the draft `is_admin(check_uid uuid default auth.uid())` accepted a caller-supplied `uuid` argument, and `authenticated` held `EXECUTE` on it. No policy in the migration ever passed a caller-controlled value into that parameter — every policy call site was `is_admin()` with no argument — so this was not an active exploit against this migration's own policies. It was still unnecessary attack surface: any signed-in user could call `supabase.rpc('is_admin', { check_uid: '<someone-elses-uuid>' })` directly and get a true/false answer about an arbitrary UUID. Fixed before anything was applied.
+
+1. **Corrected zero-argument admin function:**
+   ```sql
+   create or replace function public.is_admin()
+   returns boolean
+   language sql
+   stable
+   security invoker
+   set search_path = ''
+   as $$
+     select auth.uid() = '28356e7e-067c-49a8-81a2-095576c432a7'::uuid;
+   $$;
+
+   revoke all on function public.is_admin() from public;
+   revoke all on function public.is_admin() from anon;
+   grant execute on function public.is_admin() to authenticated;
+   ```
+   `auth.uid()` is now the only identity source — the function can only ever answer "am I the admin," never "is this other UUID the admin." Switched `SECURITY DEFINER` → `SECURITY INVOKER`: a literal `auth.uid()` comparison needs no elevated privilege, so `DEFINER` was never actually required. `search_path` is locked to empty since the body needs no unqualified schema access (`auth.uid()` is already schema-qualified).
+
+2. **Corrected migration path (same path, content revised):** `supabase/migrations/20260714000000_harden_admin_access.sql`
+
+3. **Corrected rollback path (same path, content revised):** `supabase/migrations/20260714000000_harden_admin_access_ROLLBACK.sql` — now drops/revokes the zero-argument `is_admin()` signature.
+
+4. **Client call sites:** no changes were needed. `src/App.jsx:89` and `src/pages/AdminPage.jsx:28` both already call `supabase.rpc('is_admin')` with no arguments — confirmed by grep across `src/` before concluding this. Both are already compatible with the new zero-argument signature.
+
+5. **Idempotency:** the migration is now safe to re-run. Every `create policy` statement is immediately preceded by a matching `drop policy if exists` for that exact policy name, so a second run (e.g. after a partial failure) no longer errors on "policy already exists." `create or replace function` and the `revoke`/`grant` statements were already idempotent. No pre-existing, non-admin policy is ever touched — only the 10 `admin_*`-named policies this migration itself owns.
+
+6. **Production inspection still required (not run — no database access in this environment):**
+   ```sql
+   select n.nspname as schema, c.relname as table_name,
+          c.relrowsecurity as rls_enabled, c.relforcerowsecurity as rls_forced
+   from pg_class c join pg_namespace n on n.oid = c.relnamespace
+   where n.nspname = 'public' and c.relkind = 'r' order by c.relname;
+
+   select schemaname, tablename, policyname, permissive, roles, cmd,
+          qual as using_expression, with_check as with_check_expression
+   from pg_policies where schemaname = 'public' order by tablename, policyname;
+
+   select table_schema, table_name, grantee, privilege_type
+   from information_schema.role_table_grants
+   where table_schema = 'public' and grantee in ('anon', 'authenticated')
+   order by table_name, grantee, privilege_type;
+   ```
+   Must be run against production before this migration is applied, with specific attention to `profiles`, `groups`, `group_verse`, `dinner_verses`, `verse_history`, `notes`, `onboarding`, `bible_verses`, `feeling_verses`, `analytics`, and `announcements` — confirming RLS is enabled on every user-data table, `notes` cannot be read/deleted by unrelated users, `verse_history` cannot be read/modified across users, `profiles` does not expose other users' emails, `groups` cannot be deleted by non-owners, `analytics` cannot be read by ordinary users, and `announcements` cannot be written by ordinary users. This migration is additive only — it does not repair a missing or overly broad normal-user policy. If inspection finds any of the above missing or overly broad: stop, report the exact existing policy found, and prepare a **separate** minimal baseline-RLS migration — do not fold a baseline-RLS fix into this admin-hardening migration, and do not apply either migration until Steve approves it.
+
+7. **Steve UUID verification still required (not run — no database access in this environment):**
+   ```sql
+   select id, email, created_at from auth.users
+   where id = '28356e7e-067c-49a8-81a2-095576c432a7';
+   ```
+   The hardcoded UUID must not be trusted merely because it existed in the old client code — the returned email must be confirmed by Steve before the migration is approved for use. No broader user listing was run or is needed for this check.
+
+8. **`.gitignore` added** at the repo root, covering `node_modules/`, `dist/`, `.env`, `.env.*` (with `!.env.example` carved out), `*.local`, and `.DS_Store`. Neither `dist/` nor `node_modules/` was ever committed; they're now untracked by explicit rule rather than by omission.
+
+9. **`package-lock.json` decision: commit it.** Verified npm is the project's actual package manager — no `yarn.lock` or `pnpm-lock.yaml` exists anywhere in the repo, and `package-lock.json`'s own header (`lockfileVersion: 3`) confirms it's npm-generated, not hand-edited. Verified behavior before deciding: `npm ci` reproduced `node_modules` cleanly from this exact lockfile with no errors, and `npm run build` succeeded against the result (output unchanged from the prior audit's build: ~514 kB / 143 kB gzipped bundle, same pre-existing chunk-size warning, no new errors). This directly closes the "no lockfile is committed at all... builds aren't guaranteed reproducible" item from the original audit's Technical Debt section.
+
+10. **Branch and commits:** all work remains local-only on `fix/dwj-post-launch-p1`:
+    - `8bb9404` — Harden `is_admin()` to zero-argument `SECURITY INVOKER`; make migration re-runnable
+    - `caa571a` — Add `.gitignore`; commit `package-lock.json` for reproducible builds
+    - (this report's own commit, immediately following)
+
+11. **Confirmation:** nothing in this revision was applied to any database, pushed to `origin`, or deployed. `npm ci` and `npm run build` were run locally only, to verify lockfile/build behavior before the git-hygiene decision above — neither touches Supabase, Vercel, or any remote. All changes are local commits on `fix/dwj-post-launch-p1`.
