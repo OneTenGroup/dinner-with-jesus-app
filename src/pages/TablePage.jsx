@@ -30,7 +30,9 @@ export default function TablePage({ onLeaveTable }) {
   const [prayerIdx, setPrayerIdx] = useState(0)
   const [prayedCount, setPrayedCount] = useState(0)
   const [discussed, setDiscussed] = useState(false)
+  const [markingDiscussed, setMarkingDiscussed] = useState(false)
   const prayerInitialized = useRef(false)
+  const savedTargetsRef = useRef(new Set()) // tracks which targets already saved this draft, so a retry after a partial failure doesn't duplicate
 
   const faithLevel = profile?.faith_level || 1
 
@@ -125,19 +127,23 @@ export default function TablePage({ onLeaveTable }) {
   }
 
   async function markDiscussed() {
-    if (!verse || discussed) return
+    if (!verse || discussed || markingDiscussed) return // prevent double submission
+    setMarkingDiscussed(true)
     try {
-      await supabase.from('verse_history').upsert({
+      const { error } = await supabase.from('verse_history').upsert({
         dinner_verse_id: verse.id,
         user_id: user.id,
         discussed_at: new Date().toISOString()
       }, { onConflict: 'dinner_verse_id,user_id' })
+      if (error) throw error
       setDiscussed(true)
       track('discussion_marked', { verse_ref: verse.verse_ref })
       showToast('Beautiful conversation tonight. 🙏')
     } catch (err) {
-      showToast('Could not save. Try again.')
+      console.error('[table:markDiscussed]', err?.message)
+      showToast("That didn't save. Tap it again when you're ready.")
     }
+    setMarkingDiscussed(false)
   }
 
   function getQuestion(level) {
@@ -171,31 +177,39 @@ export default function TablePage({ onLeaveTable }) {
 
   async function saveNote() {
     if (!noteText.trim()) { showToast('Write something first.'); return }
+    if (savingNote) return // prevent double submission
     setSavingNote(true)
+    const saved = savedTargetsRef.current
     try {
-      if (noteTarget === 'personal' || noteTarget === 'both') {
-        await supabase.from('notes').insert({
+      if ((noteTarget === 'personal' || noteTarget === 'both') && !saved.has('personal')) {
+        const { error } = await supabase.from('notes').insert({
           user_id: user.id,
           verse_ref: verse?.verse_ref,
           category: verse?.category,
           content: noteText,
           family_id: null
         })
+        if (error) throw error
+        saved.add('personal') // don't re-insert this half if the group insert below fails and the user retries
       }
-      if ((noteTarget === 'group' || noteTarget === 'both') && group?.id) {
-        await supabase.from('notes').insert({
+      if ((noteTarget === 'group' || noteTarget === 'both') && group?.id && !saved.has('group')) {
+        const { error } = await supabase.from('notes').insert({
           user_id: user.id,
           verse_ref: verse?.verse_ref,
           category: verse?.category,
           content: noteText,
           family_id: group.id
         })
+        if (error) throw error
+        saved.add('group')
       }
       track('journal_saved', { target: noteTarget })
       showToast('Saved. ✓')
-      setNoteText('')
+      setNoteText('') // only clear the draft once every save is confirmed
+      saved.clear()
     } catch (err) {
-      showToast('Could not save. Try again.')
+      console.error('[table:saveNote]', err?.message)
+      showToast("That didn't save. Your words are still here — try again.")
     }
     setSavingNote(false)
   }
@@ -385,9 +399,9 @@ export default function TablePage({ onLeaveTable }) {
           className="btn btn-gold"
           style={{ width: '100%', opacity: discussed ? 0.6 : 1 }}
           onClick={markDiscussed}
-          disabled={discussed}
+          disabled={discussed || markingDiscussed}
         >
-          {discussed ? '✓ Conversation saved for tonight' : '✓ We discussed this tonight 🙏'}
+          {discussed ? '✓ Conversation saved for tonight' : markingDiscussed ? 'Saving...' : '✓ We discussed this tonight 🙏'}
         </button>
       </div>
 
@@ -400,7 +414,7 @@ export default function TablePage({ onLeaveTable }) {
         </p>
         <textarea
           value={noteText}
-          onChange={e => setNoteText(e.target.value)}
+          onChange={e => { setNoteText(e.target.value); savedTargetsRef.current.clear() }}
           placeholder="Something someone said that you never want to forget..."
           style={{ minHeight: 72, resize: 'none', marginBottom: 8 }}
         />
