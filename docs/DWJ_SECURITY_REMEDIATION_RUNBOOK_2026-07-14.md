@@ -1,7 +1,7 @@
 # Dinner with Jesus — Emergency Security Remediation & Safe Rollout Runbook
-**Date:** 2026-07-15 (updated same day, twice: Steve UUID verified + family_table/time_verses resolved as views; then PostgreSQL 17.6 confirmed + family_table dependency check run)
-**Branch:** `fix/dwj-post-launch-p1`
-**Status:** Preparation complete. All pre-deployment blockers resolved — **package approved for staged execution with no further code changes required.** **Nothing applied to any database. Nothing pushed. Nothing deployed.** See Section 18 for the deployment order.
+**Date:** 2026-07-15 (updated same day, three times: Steve UUID verified + family_table/time_verses resolved as views; then PostgreSQL 17.6 confirmed + family_table dependency check run; then superseded by the shared-table repair's deployment order — see below)
+**Branch:** `fix/dwj-post-launch-p1` (this security package); a separate branch `fix/dwj-shared-table-sync` (off this one) adds the shared-table repair, migration `20260714000004_shared_dinner_session.sql`, and the current deployment order
+**Status:** Preparation complete. All pre-deployment blockers resolved for this package specifically. **For the current combined deployment order (this package + the shared-table repair), see `docs/DWJ_SHARED_TABLE_FUNCTIONAL_AUDIT_2026-07-15.md`, Section 28 — do not follow Section 18 below in isolation.** Nothing applied to any database. Nothing pushed. Nothing deployed.
 
 ---
 
@@ -391,6 +391,8 @@ await supabase.rpc('is_admin')                        // expect: false
 ```
 
 ## 18. Safe Deployment Order
+
+**Superseded (2026-07-15) — see `docs/DWJ_SHARED_TABLE_FUNCTIONAL_AUDIT_2026-07-15.md`, Section 28, "Final Combined Staged Deployment Order," for the current authoritative sequence.** That order combines this security package with the shared-table repair's `20260714000004_shared_dinner_session.sql` migration, which must apply in the same early "primitives" phase as `20260714000001_security_primitives.sql` (before baseline RLS lockdown), since it adds `groups.timezone`/`group_verse.prayer_order` and related RPCs that the repaired client also depends on. The step-by-step below is kept for historical reference and because its individual steps (A, B, verification snippets, etc.) are still individually accurate — only the overall phase ordering and what's bundled into "the repaired client" have changed.
 
 **A.** Read the RLS-status/policies/grants queries again immediately before applying anything, to confirm nothing has changed in production since this package was prepared.
 **B.** Review Supabase Auth/API/Postgres logs per Section 21's checklist, before making any change, so a pre-existing baseline is on record.

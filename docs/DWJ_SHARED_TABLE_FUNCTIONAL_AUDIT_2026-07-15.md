@@ -1,7 +1,7 @@
 # Dinner with Jesus — Shared Table Functional Audit & Repair
-**Date:** 2026-07-15
+**Date:** 2026-07-15 (revised same day — see Section 22 for the final product-rules pass: explicit stored prayer content identifier, family timezone with 4am cutoff, session-invariant columns, UX-clarity toasts)
 **Branch:** `fix/dwj-shared-table-sync` (off `fix/dwj-post-launch-p1`)
-**Status:** Audit complete, repair implemented. **Nothing pushed, deployed, published, or applied to production.**
+**Status:** Audit complete, repair implemented, product rules confirmed/implemented. **Nothing pushed, deployed, published, or applied to production.**
 
 ---
 
@@ -382,3 +382,172 @@ Branch: `fix/dwj-shared-table-sync`, created off `fix/dwj-post-launch-p1` at com
 | Dead buttons or misleading success states? | The core one (prayer button not reflecting reality) is fixed. None newly introduced by this pass. |
 
 No screens were redesigned, moved, or restyled. Every change in this pass is behind existing UI elements, not new ones.
+
+---
+
+# Revision 2026-07-15b — Final Shared-Table Product Rules
+
+This section covers a same-day follow-up pass that confirmed and hardened five specific product rules against the repair above. **Nothing new was pushed, deployed, published, or applied to production in this revision either.**
+
+## 22. Section 1 — Shared Prayer Content: Before and After This Revision
+
+**Exact state confirmed by re-reading the code (not assumed), before this revision:**
+- `TablePage.jsx`'s `getPrayer()` already always returned `verse.prayer_level_1` (fixed in the prior pass) — sourced from `session.prayer_level_1`, which came from a **hardcoded literal** `dv.prayer_level_1` inside `get_or_create_tonight_session()`'s `SELECT` list. Not a stored, named identifier — an implicit rule baked into one function's query.
+- `GuestTablePage.jsx` independently received `prayer_level_1` from a **second, separate hardcoded literal** inside `get_guest_table_by_invite_code()` — the same value in practice, but via two independent literals that could have silently drifted apart if one were ever edited without the other.
+- `SettingsPage.jsx`'s "Faith Journey" `faith_level` picker remained fully present and functional as a personal profile preference — already fully decoupled from the shared Table prayer (confirmed: no `faith_level`/`faithLevel` reference anywhere in `TablePage.jsx` except an explanatory comment).
+- Guests already received the same text as permanent members, coincidentally (both hardcoded to level 1 independently).
+
+**Fixed in this revision:**
+- `group_verse.prayer_tier text not null default 'level_1'` — an explicit, stored, named identifier for which `dinner_verses.prayer_level_N` column is canonical for that specific dinner, snapshotted once at session creation. Constrained to `('level_1','level_2','level_3')` by a `CHECK` constraint.
+- `get_or_create_tonight_session()` now resolves prayer text via a `CASE` on the row's own `prayer_tier`, returned as `prayer_text`.
+- `get_guest_table_by_invite_code()` (upgraded via `create or replace` inside `20260714000004_shared_dinner_session.sql`, after the column exists) reads the **same stored `prayer_tier`** from the **same session row** — not a second independent literal.
+- Only `'level_1'` is ever written today (no group-level faith setting exists to base anything else on), but the identifier itself is now real, stored data, not an implicit rule buried in two places.
+
+**Once a session exists, its prayer cannot change because a member's personal Faith Journey setting is different or changes later** — `prayer_tier` is read once at creation and frozen on the row; nothing in `getPrayer()`, `get_or_create_tonight_session()`, or `get_guest_table_by_invite_code()` reads any viewer's `profile.faith_level` at any point.
+
+**Test protocol (see Section 25 — not executed, no live environment):** Owner/Member A/Member B each set a different Faith Journey level in Settings, then all three plus a guest load the same dinner and are expected to see byte-identical prayer text.
+
+## 23. Section 2 — Prayer Rotation Rule: Confirmed Already Correct
+
+Verified by re-reading `complete_prayer_turn()` and `get_or_create_tonight_session()` line by line, not assumed:
+
+| Required rule | Status | Where enforced |
+|---|---|---|
+| Advances only after a dinner is completed | ✅ already true | `complete_prayer_turn()` is the only write path to `prayer_turns_completed`; nothing else calls it |
+| Not on a new date beginning | ✅ already true | `get_or_create_tonight_session()` never writes `groups.next_prayer_user_id` |
+| Not on app open / session load | ✅ already true | Same — session creation/loading is a separate function from turn completion |
+| Not on opening the prayer section | ✅ already true | No code path from rendering `TablePage` calls `complete_prayer_turn()` |
+| Not on refresh | ✅ already true | `loadVerse()` only ever calls `get_or_create_tonight_session()` |
+| Not double-advanced by concurrent taps | ✅ already true, now doubly guarded | Optimistic-concurrency compare-and-swap on `prayer_turns_completed`, **plus** (new this revision) an explicit `rotation_advanced` boolean guard in the same statement that writes `groups.next_prayer_user_id` — belt and suspenders on the specific "idempotent dinner-completion key" requirement |
+| Skipped day preserves the next person's turn | ✅ already true, confirmed not assumed | `next_prayer_user_id` is untouched by anything except full completion — if no session is ever created for a skipped day, nothing runs at all, so the value carries forward unchanged to whenever the family next opens the app |
+| Incomplete dinner doesn't consume a turn | ✅ already true | Same mechanism — `next_prayer_user_id` only changes on the transition to full completion, never partial progress |
+| Reopening a completed dinner still shows who prayed | ✅ already true | `group_verse` rows are never deleted or reset; `get_or_create_tonight_session()`'s fast path returns the existing, frozen row for that date |
+| Next dinner uses the next eligible permanent member | ✅ already true | Fresh `prayer_order` built from current `profiles.group_id` membership each new session |
+| Removed members skipped / new members included | ✅ already true | Same mechanism |
+| Guests excluded from rotation | ✅ already true | Guests never have a `profiles` row with `group_id` set |
+| Owner follows the same rules as everyone else | ✅ already true | No owner-specific branch exists anywhere in the rotation logic |
+
+**No code correction was required for the rotation-advancement logic itself.** The only change made this revision is the additional `rotation_advanced` guard column, added for auditability and defense-in-depth on the specific "idempotent completion key" requirement — not because a bug was found in the existing compare-and-swap.
+
+## 24. Section 3 — Family/Table Timezone and the 4:00 AM Cutoff
+
+**Schema:** `groups.timezone text not null default 'America/Chicago'`, constrained by `groups_timezone_valid check (public.is_valid_iana_timezone(timezone))` — a real validation function that attempts `now() at time zone tz` and catches failure, not a static allowlist. No arbitrary text can be stored via any code path, including a hypothetically compromised client, since the constraint is enforced by Postgres itself on every `INSERT`/`UPDATE`.
+
+**Backfill:** `America/Chicago` is used **only** as the migration-time fallback for groups created before this column existed, applied automatically by `ALTER TABLE ... ADD COLUMN ... DEFAULT ... NOT NULL` (a single efficient statement in Postgres 11+, no separate `UPDATE` needed) — documented explicitly in the migration file as a fallback, not a claim about where most families actually live.
+
+**On group creation:** `useFamily.js`'s `createGroup()` now detects the owner's device timezone via `Intl.DateTimeFormat().resolvedOptions().timeZone` (the standard browser API) and sends it; if detection fails for any reason, the field is simply omitted and the database's own default applies.
+
+**Owner-editable:** `SettingsPage.jsx` now has an owner-only timezone picker (curated list of common US IANA zones — not exhaustive, since the database validates whatever is actually sent regardless of what the picker offers). Writes through the existing `groups_update_owner` RLS policy — no new policy needed.
+
+**4:00 AM cutoff, exact mechanism:** `public.canonical_dinner_date(tz)` computes `((now() at time zone tz) - interval '4 hours')::date`. At 3:59:59 AM local time, this still resolves to the previous calendar day; at exactly 4:00:00 AM, it resolves to the current day. A dinner day therefore runs 4:00 AM through 3:59 AM the following local day, exactly as specified — a family eating dinner at 7–9pm local time is nowhere near either boundary, so "tonight" never rolls over mid-meal.
+
+**Computed server-side, not per-client:** both `get_or_create_tonight_session()` and `complete_prayer_turn()` look up `groups.timezone` and call `canonical_dinner_date()` internally — no client computes this date. `get_guest_table_by_invite_code()` does the same, using the group looked up by invite code, so a guest resolves the identical dinner day as permanent members. The two remaining client-side date computations found during this pass (`HomePage.jsx`/`SettingsPage.jsx`'s `checkVerseLocked()`) were replaced with calls to a new, read-only `get_canonical_dinner_date_for_group()` RPC — deliberately **not** `get_or_create_tonight_session()` itself, since that would create a session as a side effect of merely viewing the Home/Settings screen, changing the deliberate "owner sets the verse first, then invites" flow that exists today.
+
+**Historical sessions are not rewritten when the timezone changes:** `group_verse.timezone_used` snapshots the group's timezone at the moment each session was created. Changing `groups.timezone` later only affects the *next* session created (a new date, under the new timezone) — the fast path in `get_or_create_tonight_session()` returns existing rows unchanged regardless of any later timezone edit.
+
+**Test protocol (Section 25, not executed):** owner in Central time, remote members in Eastern and Pacific time, all three should resolve to the identical `group_verse` row both before and after each device's local midnight, and only roll to a new session at each's respective 4am-local-adjusted boundary relative to the *group's* timezone (not their own) — i.e., a Pacific-time member should see "yesterday's" dinner continue even after their own midnight has passed, if the group's Central-time 4am cutoff hasn't arrived yet.
+
+## 25. Section 4 — Session Content Invariants: Final Column List
+
+`group_verse` (the canonical per-group-per-day session row) now freezes or identifies:
+
+| Field | Frozen/identifies |
+|---|---|
+| `group_id` | Which family/group |
+| `verse_date` | Canonical dinner date (server-computed, timezone + 4am cutoff) |
+| `timezone_used` | Which timezone was active when `verse_date` was computed — new this revision |
+| `dinner_verse_id` | Verse/content ID — context and questions are other columns on the same referenced row, so identified transitively |
+| `prayer_tier` | Explicit prayer content identifier — new this revision |
+| `prayer_order` | Prayer-order snapshot (member ids) |
+| (implicit: `prayer_order[1]`) | Designated (starting) prayer member — no separate column needed, it's the first array element by construction |
+| `prayer_turns_completed` | Prayer completion state / progress |
+| `rotation_advanced` | Rotation advancement state — new this revision, explicit idempotency guard |
+
+**Uniqueness:** one row per `(group_id, verse_date)`, enforced by a unique constraint this migration assumes already exists (see the migration file's own verification query and fallback `ADD CONSTRAINT`, not independently re-verified against the live schema in this revision).
+
+**Atomicity, re-confirmed:** `get_or_create_tonight_session()` uses `insert ... on conflict do nothing ... returning id` — the first concurrent caller's insert lands; every other simultaneous caller's insert is a genuine no-op, and `was_created` (new this revision, see Section 26) tells each caller precisely whether *their own* call created the row, computed from the `RETURNING` clause itself (not a pre-check-then-guess), so it stays correct even under a real concurrent race.
+
+## 26. Section 5 — UX Clarity Messaging (implemented, not deferred)
+
+The three requested messages are implemented, using the exact copy specified:
+
+- **"Tonight's table is ready."** — shown when `get_or_create_tonight_session()`'s `was_created` return value is `true` for *this* call (`HomePage.jsx`/`SettingsPage.jsx`'s "Set tonight's verse" button).
+- **"Tonight's table was already set."** — shown when `was_created` is `false`.
+- **"Your family already completed tonight's dinner."** — shown once, on `TablePage.jsx`'s load, when the freshly-loaded session's `prayer_turns_completed` already equals `prayer_order.length`.
+
+`was_created` is computed precisely, not approximately: the RPC checks for an existing row before attempting its insert (an initial guess), then corrects that guess using `INSERT ... ON CONFLICT DO NOTHING ... RETURNING id INTO ...` — `RETURNING` only yields a row for an insert that actually happened, so a caller that *loses* a concurrent creation race gets the correct `false`, not a stale `true` from its own earlier pre-check.
+
+**Loading/error honesty, re-confirmed unchanged:** no success is shown before the database confirms it (every write path checks `error` before showing a success toast — unchanged from the prior repair pass); journal drafts are preserved on failure (unchanged, `savedTargetsRef` logic untouched); no local fallback dinner content is ever silently generated (the RPC either returns real data or the existing error toast fires — no client-side verse fabrication exists anywhere in this codebase).
+
+## 27. Section 6 — Multi-Device Test Plan (Executable Protocol — NOT RUN)
+
+**No Supabase credentials or local database exist in this environment**, consistent with every phase of this entire engagement. Nothing below is claimed as passed. This is the exact protocol to run once a staging environment exists.
+
+### Setup
+1. Apply, in order: `20260714000001_security_primitives.sql`, `20260714000004_shared_dinner_session.sql`, then `20260714000002_emergency_baseline_rls.sql`, then `20260714000003_admin_access_policies.sql` (see Section 28 for the full rationale).
+2. Create 3 real accounts: Owner, Member A, Member B. Owner creates a group (timezone auto-detected from the creating device); A and B join via invite code.
+3. Four independent sessions: 3 separate authenticated browser profiles + one anonymous session (incognito or a plain HTTP client with only the anon key) for the guest route.
+
+### Scenarios
+1. **Owner creates the dinner** — confirm `group_verse` row created with non-empty `prayer_order`, `prayer_tier = 'level_1'`, `timezone_used` matching the group's current timezone, `rotation_advanced = false`.
+2. **Member A joins 5 minutes later** — confirm A sees byte-identical `verse_ref`/`verse_text`/`context_text`/all question levels/prayer text to Owner.
+3. **Member B joins after midnight in their own device timezone** (but before the group's 4am-local cutoff) — confirm B still sees the *same* session as A and Owner, not a new one, by setting B's OS/browser timezone to something whose local midnight has already passed relative to the group's timezone.
+4. **Guest joins with the table code** — confirm identical verse/context/questions/prayer text to permanent members; confirm no prayer button/rotation UI is shown to the guest at all.
+5. **All devices refresh** — confirm `prayer_turns_completed` and derived "whose turn" identical before/after on every device.
+6. **All devices close and reopen** — same check, across an actual app-kill, not just a tab refresh.
+7. **Two permanent members complete prayer concurrently** — fire two `complete_prayer_turn` calls with the same `expected_turns_completed` value within the same event-loop tick from two different sessions.
+8. **Rotation advances exactly once** — direct consequence of #7; confirm via `select prayer_turns_completed from group_verse where group_id = ... and verse_date = ...` immediately after — expect +1, not +2.
+9. **The next dinner shows the correct next permanent member** — after a full rotation completes, confirm `groups.next_prayer_user_id` is the member one position after tonight's starter, and confirm the next day's `get_or_create_tonight_session()` call builds a `prayer_order` starting with that person.
+10. **Skip a calendar day and verify no turn was lost** — do not open the app for a group for one full calendar day (or manipulate `verse_date`/system clock in staging), then open on a later day; confirm `groups.next_prayer_user_id` is unchanged from before the skip and the new session's `prayer_order` starts with that same person.
+11. **Remove the upcoming prayer person and verify the next eligible person** — call `remove_group_member()` targeting whoever `groups.next_prayer_user_id` currently points to, start a new day's session, confirm the new `prayer_order` excludes them and starts with a different (still-current) member.
+12. **Add a new permanent member and verify future inclusion** — join a new member, start a new day's session, confirm they appear in the new `prayer_order`.
+13. **Change the family timezone and verify future sessions use it without rewriting historical ones** — as Owner, change the group's timezone in Settings; confirm a *new* session created afterward has the new `timezone_used`, while a session created *before* the change retains its original `timezone_used` and `verse_date` unchanged.
+14. **No cross-group visibility** — confirm neither `group_verse` nor `groups.next_prayer_user_id` nor any RPC response for Group 1 ever includes data from an unrelated Group 2, for any of the four identities.
+
+**Also verify explicitly, tied to this revision's specific additions:** the three UX toasts fire with the exact specified copy at the exact specified moments (Section 26); the `is_valid_iana_timezone` constraint actually rejects a garbage string (e.g. attempt `update groups set timezone = 'Not/A/Real/Zone' where id = ...` directly against staging and confirm it errors).
+
+## 28. Final Combined Staged Deployment Order
+
+Supersedes the deployment order in the prior revision of this document and in `docs/DWJ_SECURITY_REMEDIATION_RUNBOOK_2026-07-14.md` — this is the single authoritative order going forward, combining both the security package and the shared-table repair:
+
+**Phase 1 — Security primitives**
+A. `supabase/migrations/20260714000001_security_primitives.sql`
+
+**Phase 2 — Shared dinner/session primitives**
+B. `supabase/migrations/20260714000004_shared_dinner_session.sql` (depends on nothing from Phase 1 except running after it, since it upgrades `get_guest_table_by_invite_code()` via `create or replace` — must run after A, not before)
+C. Verify the `group_verse(group_id, verse_date)` unique constraint actually exists (migration file's own header query) before proceeding, since both A and B's RPCs assume it
+D. Test every RPC directly per this document's Section 27 and the security runbook's Section 17 (both are additive-only at this point — nothing has been restricted yet)
+
+**Phase 3 — Repaired client deployment**
+E. Push and deploy the client on `fix/dwj-shared-table-sync` (which includes every change from `fix/dwj-post-launch-p1`) — only after A and B are both applied, since the client calls RPCs from both
+F. Smoke-test production before lockdown: create a table, join a table, guest table view, list/remove members, prayer rotation end-to-end, journal save/edit/delete, admin access, normal-user admin denial, timezone picker
+
+**Phase 4 — Baseline RLS lockdown**
+G. `supabase/migrations/20260714000002_emergency_baseline_rls.sql`
+H. Immediately run the full anon/User-A/User-B security matrix (security runbook Section 17)
+
+**Phase 5 — Admin policies**
+I. `supabase/migrations/20260714000003_admin_access_policies.sql`
+J. Confirm Steve's admin access works; confirm normal users remain denied
+
+**Phase 6 — Multi-device production testing**
+K. Run every scenario in Section 27 above against the real production environment with real devices
+L. Continue reviewing logs per the security runbook's Section 21
+
+**Nothing in Phases 1–6 has been executed. This is the order for Steve (or whoever holds deployment access) to follow, not a record of what has happened.**
+
+## 29. Assumptions Carried Into This Revision
+
+- The `group_verse(group_id, verse_date)` unique constraint (needed by `ON CONFLICT`) is inferred, not directly verified against the live schema — same caveat as the prior revision, now applying to both the original insert and the guest-RPC lookup.
+- `is_valid_iana_timezone()`'s `exception when others` is intentionally broad (catches any failure mode, not just the specific SQLSTATE Postgres raises for an unrecognized zone) since this session cannot verify the exact error code against a live database — the broad catch is the safer choice for a pure validation function (a false "invalid" is recoverable; an uncaught exception crashing an `INSERT` is not).
+- The curated `TIMEZONES` list in `SettingsPage.jsx` is a convenience picker only, not exhaustive — any group needing a non-US zone would need that value set some other way (e.g., directly in the database) until the picker is expanded, which is a small follow-up, not a blocker.
+
+## 30. Unresolved Issues (unchanged from the prior revision unless noted)
+
+- Whether `families`/`family_members` (the unused parallel schema) is active, legacy, or an in-progress rewrite — still not resolvable from code alone (Section 5 of the original repair section).
+- No realtime propagation to already-open devices — still true; a device must refetch (refresh/reopen/renavigate) to see another member's advance. Not addressed in this revision either, for the same reason as before (a genuinely separate, larger change).
+- The curated timezone list (Section 29) — small, explicitly flagged follow-up.
+
+## 31. Confirmation
+
+**Nothing in this revision has been applied to any database, pushed to `origin`, deployed to Vercel, or published to the Play Store.** `npm run build` and `npm audit` were run locally only. All work is local commits on `fix/dwj-shared-table-sync`.
