@@ -204,3 +204,9 @@ A design review of the prepared (still-unapplied) migration found that the draft
     - (this report's own commit, immediately following)
 
 11. **Confirmation:** nothing in this revision was applied to any database, pushed to `origin`, or deployed. `npm ci` and `npm run build` were run locally only, to verify lockfile/build behavior before the git-hygiene decision above — neither touches Supabase, Vercel, or any remote. All changes are local commits on `fix/dwj-post-launch-p1`.
+
+---
+
+## 18. Superseded by the Emergency Security Remediation Runbook (2026-07-15)
+
+Steve subsequently ran the production RLS-status, `pg_policies`, and table-grants inspection queries prepared in Section 17.6 above. The results confirmed real, exploitable exposures well beyond the single admin-dashboard question this section covers — see **`docs/DWJ_SECURITY_REMEDIATION_RUNBOOK_2026-07-14.md`** for the full findings, the restructured three-migration package (`20260714000001_security_primitives.sql`, `20260714000002_emergency_baseline_rls.sql`, `20260714000003_admin_access_policies.sql`, which replace the single `20260714000000_harden_admin_access.sql` file described above), the client changes required to support them, the full test matrix, and the staged deployment order. That document is now the authoritative reference for applying this remediation — treat this section as historical context for how the effort started, not as the current plan.
