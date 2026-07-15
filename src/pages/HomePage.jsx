@@ -84,7 +84,7 @@ async function lockVerseForGroup(groupId) {
     group_id_input: groupId
   })
   if (error || !data || data.length === 0) return { error: 'Could not lock verse' }
-  return { success: true }
+  return { success: true, wasCreated: data[0].was_created }
 }
 
 export default function HomePage({ onGoToTable, activeMembers, setActiveMembers, allMembers, stats }) {
@@ -129,7 +129,14 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
 
   async function checkVerseLocked() {
     if (!group?.id) return
-    const today = new Date().toISOString().split('T')[0]
+    // get_canonical_dinner_date_for_group() resolves "today" using the
+    // group's own timezone + 4am cutoff, server-side -- not a
+    // client-computed date, and without the side effect of creating a
+    // session just to check whether one exists yet.
+    const { data: today } = await supabase.rpc('get_canonical_dinner_date_for_group', {
+      group_id_input: group.id
+    })
+    if (!today) return
     const { data } = await supabase
       .from('group_verse')
       .select('id')
@@ -144,7 +151,7 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
     setLockingVerse(true)
     const result = await lockVerseForGroup(group.id)
     if (result.success) {
-      showToast("Tonight's verse is set! Now share your invite code. 🙏")
+      showToast(result.wasCreated ? "Tonight's table is ready. 🙏" : 'Tonight\'s table was already set. 🙏')
       setVerseLocked(true)
     } else {
       showToast(result.error || 'Could not set verse. Try again.')

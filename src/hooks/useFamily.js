@@ -42,7 +42,7 @@ export function useFamily() {
 
       const { data: groupData } = await supabase
         .from('groups')
-        .select('id, name, invite_code, owner_id')
+        .select('id, name, invite_code, owner_id, timezone')
         .eq('id', groupId)
         .single()
 
@@ -64,6 +64,7 @@ export function useFamily() {
         id: groupData.id,
         name: groupData.name,
         invite_code: groupData.invite_code,
+        timezone: groupData.timezone,
         isOwner: groupData.owner_id === user.id
       })
       setMembers(groupMembers?.map(p => p.name).filter(Boolean) || [])
@@ -84,9 +85,30 @@ export function useFamily() {
       let code = ''
       for (let i = 0; i < 6; i++) code += chars.charAt(Math.floor(Math.random() * chars.length))
 
+      // Default the family/table timezone to the owner's own device
+      // timezone at creation time -- Intl.DateTimeFormat is the
+      // standard, reliable way to read it. If detection fails for any
+      // reason, omit the field entirely and let the database's own
+      // NOT NULL DEFAULT ('America/Chicago', a documented migration
+      // fallback -- see 20260714000004_shared_dinner_session.sql)
+      // apply. Every group's timezone -- detected or defaulted -- is
+      // still validated server-side by a CHECK constraint regardless
+      // of what's sent here.
+      let detectedTimezone
+      try {
+        detectedTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+      } catch (tzErr) {
+        detectedTimezone = undefined
+      }
+
       const { data: newGroup, error: groupError } = await supabase
         .from('groups')
-        .insert({ name: name.trim(), invite_code: code, owner_id: user.id })
+        .insert({
+          name: name.trim(),
+          invite_code: code,
+          owner_id: user.id,
+          ...(detectedTimezone ? { timezone: detectedTimezone } : {})
+        })
         .select('id, name, invite_code')
         .single()
 

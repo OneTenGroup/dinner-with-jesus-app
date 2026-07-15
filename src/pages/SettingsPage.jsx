@@ -12,6 +12,20 @@ const FAITH_LABELS = {
 
 const TRANSLATIONS = ['KJV', 'NIV', 'NLT', 'ESV', 'NKJV']
 
+// A curated set of IANA zone names, not an exhaustive list -- the
+// database validates whatever is actually sent (groups_timezone_valid
+// check constraint, 20260714000004_shared_dinner_session.sql), so this
+// is only a convenience picker, not the source of truth for validity.
+const TIMEZONES = [
+  { value: 'America/New_York', label: 'Eastern (New York)' },
+  { value: 'America/Chicago', label: 'Central (Chicago)' },
+  { value: 'America/Denver', label: 'Mountain (Denver)' },
+  { value: 'America/Phoenix', label: 'Arizona (no DST)' },
+  { value: 'America/Los_Angeles', label: 'Pacific (Los Angeles)' },
+  { value: 'America/Anchorage', label: 'Alaska' },
+  { value: 'Pacific/Honolulu', label: 'Hawaii' },
+]
+
 // get_or_create_tonight_session() (20260714000004_shared_dinner_session.sql)
 // is the single, atomic, server-side "lock tonight's verse" operation --
 // see HomePage.jsx's copy of this same comment for why the client-side
@@ -25,12 +39,12 @@ async function lockVerseForGroup(groupId) {
     group_id_input: groupId
   })
   if (error || !data || data.length === 0) return { error: 'Could not lock verse' }
-  return { success: true }
+  return { success: true, wasCreated: data[0].was_created }
 }
 
 export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
   const { user, profile, signOut, updateProfile } = useAuth()
-  const { group, members, memberProfiles, createGroup, joinGroup, leaveGroup, removeMember } = useFamily()
+  const { group, members, memberProfiles, createGroup, joinGroup, leaveGroup, removeMember, reload: reloadFamily } = useFamily()
 
   const [toast, setToast] = useState('')
   const [mode, setMode] = useState('none')
@@ -50,6 +64,7 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
   const [accountSaving, setAccountSaving] = useState(false)
   const [removeConfirm, setRemoveConfirm] = useState(null) // { id, name } of member pending removal
   const [removing, setRemoving] = useState(false)
+  const [savingTimezone, setSavingTimezone] = useState(false)
 
   // memberProfiles (id + name only, never email) comes from useFamily(),
   // which sources it from the get_my_group_members() RPC -- profiles
@@ -61,7 +76,14 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
 
   async function checkVerseLocked() {
     if (!group?.id) return
-    const today = new Date().toISOString().split('T')[0]
+    // get_canonical_dinner_date_for_group() resolves "today" using the
+    // group's own timezone + 4am cutoff, server-side -- not a
+    // client-computed date, and without the side effect of creating a
+    // session just to check whether one exists yet.
+    const { data: today } = await supabase.rpc('get_canonical_dinner_date_for_group', {
+      group_id_input: group.id
+    })
+    if (!today) return
     const { data } = await supabase
       .from('group_verse')
       .select('id')
@@ -77,12 +99,32 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
     const result = await lockVerseForGroup(group.id)
     if (result.success) {
       track('verse_locked')
-      showToast("Tonight's verse is set! Now share your invite code. 🙏")
+      showToast(result.wasCreated ? "Tonight's table is ready. 🙏" : 'Tonight\'s table was already set. 🙏')
       setVerseLocked(true)
     } else {
       showToast(result.error || 'Could not set verse. Try again.')
     }
     setLockingVerse(false)
+  }
+
+  async function handleChangeTimezone(tz) {
+    if (!group?.id || !group.isOwner || tz === group.timezone) return
+    setSavingTimezone(true)
+    try {
+      // groups_update_owner RLS policy already permits this (owner-only
+      // update on their own group). The database's own
+      // groups_timezone_valid check constraint validates tz server-side
+      // regardless of what this picker offers -- this call cannot store
+      // an unvalidated value even if the client were compromised.
+      const { error } = await supabase.from('groups').update({ timezone: tz }).eq('id', group.id)
+      if (error) throw error
+      await reloadFamily()
+      showToast('Table timezone updated. Future dinners will use it. ✓')
+    } catch (err) {
+      console.error('[settings:handleChangeTimezone]', err?.message)
+      showToast('Could not update timezone. Try again.')
+    }
+    setSavingTimezone(false)
   }
 
   function showToast(msg) {
@@ -370,6 +412,27 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
               {lockingVerse ? 'Setting the table...' : verseLocked ? "✓ Tonight's verse is set" : "🔒 Set tonight's verse"}
             </button>
           </div>
+
+          {/* Table timezone — owner only. Determines when "tonight's"
+              dinner day starts/ends (4am local cutoff) for every member,
+              regardless of their own device's timezone. */}
+          {group.isOwner && (
+            <div style={{ background: 'var(--bg3)', borderRadius: 10, padding: '0.875rem', marginBottom: '0.875rem', border: '0.5px solid var(--border)' }}>
+              <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.5rem', lineHeight: 1.6 }}>
+                <span style={{ color: 'var(--gold)', fontWeight: 500 }}>Table timezone:</span> used to decide when tonight's dinner begins for everyone at the table, no matter where they are.
+              </p>
+              <select
+                value={group.timezone || 'America/Chicago'}
+                onChange={e => handleChangeTimezone(e.target.value)}
+                disabled={savingTimezone}
+                style={{ width: '100%' }}
+              >
+                {TIMEZONES.map(tz => (
+                  <option key={tz.value} value={tz.value}>{tz.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Invite code */}
           <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.75rem', fontWeight: 300 }}>Share this code so others can join your table.</p>

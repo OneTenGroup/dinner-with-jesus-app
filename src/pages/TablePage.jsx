@@ -85,19 +85,30 @@ export default function TablePage({ onLeaveTable }) {
         question_level_1: session.question_level_1,
         question_level_2: session.question_level_2,
         question_level_3: session.question_level_3,
-        prayer_level_1: session.prayer_level_1
+        // session.prayer_text is already resolved server-side from the
+        // session's stored prayer_tier -- the exact same value every
+        // member and every guest receives for this dinner.
+        prayer_level_1: session.prayer_text
       })
       setPrayerOrder(session.prayer_order || [])
       setPrayerTurnsCompleted(session.prayer_turns_completed || 0)
       track('verse_loaded', { verse_ref: session.verse_ref })
 
-      const today = new Date().toISOString().split('T')[0]
+      const orderLen = (session.prayer_order || []).length
+      if (orderLen > 0 && (session.prayer_turns_completed || 0) >= orderLen) {
+        showToast("Your family already completed tonight's dinner. 🙏")
+      }
+
+      // session.verse_date is the canonical dinner date the RPC already
+      // computed server-side (group timezone + 4am cutoff) -- used here
+      // instead of a client-computed date, so this check can't drift
+      // from what the RPC considers "tonight."
       const { data: historyData } = await supabase
         .from('verse_history')
         .select('id')
         .eq('dinner_verse_id', session.dinner_verse_id)
         .eq('user_id', user.id)
-        .gte('discussed_at', today)
+        .gte('discussed_at', session.verse_date)
         .single()
       setDiscussed(!!historyData)
     } catch (err) {
