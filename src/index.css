@@ -430,5 +430,24 @@ textarea {
   text-underline-offset: 3px;
 }
 
+.auth-switch {
+  font-size: 13px;
+  color: var(--silver);
+  text-align: center;
+  line-height: 1.8;
+}
+
+.auth-switch button {
+  font-size: 13px;
+  color: var(--gold);
+  cursor: pointer;
+  background: none;
+  border: none;
+  font-family: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  padding: 0;
+}
+
 /* ── Scrollbar ── */
 ::-webkit-scrollbar { width: 0; }
