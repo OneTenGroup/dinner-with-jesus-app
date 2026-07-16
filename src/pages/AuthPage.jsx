@@ -37,8 +37,13 @@ export default function AuthPage() {
     e.preventDefault()
     if (!resetEmail.trim()) return
     setResetLoading(true)
+    // window.location.origin, not a hardcoded domain -- was previously
+    // 'https://www.flippingtables.ai' (www), inconsistent with the rest of
+    // the app which uses the bare domain (e.g. TablePage.jsx's invite link,
+    // the landing page's own QR code). Mismatched/stale redirect targets
+    // are a leading cause of Supabase auth emails not resolving correctly.
     const { error } = await supabase.auth.resetPasswordForEmail(resetEmail, {
-      redirectTo: 'https://www.flippingtables.ai'
+      redirectTo: window.location.origin
     })
     if (error) {
       setError(error.message)

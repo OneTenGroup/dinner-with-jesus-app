@@ -34,10 +34,15 @@ export function AuthProvider({ children }) {
   }
 
   async function signUp(email, password, name) {
+    // emailRedirectTo must be explicit -- without it, Supabase falls back to
+    // the project's dashboard-configured default Site URL, which may be
+    // stale or unset. window.location.origin always matches whatever
+    // origin actually served this signup (prod, preview, or local dev),
+    // same pattern as the invite link in TablePage.jsx.
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { name } }
+      options: { data: { name }, emailRedirectTo: window.location.origin }
     })
     return { data, error }
   }
