@@ -433,7 +433,7 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
       <div style={{ textAlign: 'center', marginBottom: '0.75rem' }}>
         <button
           onClick={() => {
-            const msg = `Check out Dinner with Jesus — one verse, one real conversation, one prayer at dinner. It's free and it's changing how families connect. flippingtables.ai 🙏`
+            const msg = `Check out Dinner with Jesus — one verse, one real conversation, one prayer at dinner. It's changing how families connect. flippingtables.ai 🙏`
             if (navigator.share) {
               navigator.share({ text: msg })
             } else {

@@ -150,13 +150,13 @@ export default function GuestTablePage() {
                 Want your own dinner circle?
               </p>
               <p style={{ fontSize: '13px', color: '#8899aa', lineHeight: 1.7, marginBottom: '1.25rem' }}>
-                Dinner with Jesus is free. One verse, one conversation, one prayer — every night with the people you love.
+                One verse, one conversation, one prayer — every night with the people you love.
               </p>
               <a
                 href="https://flippingtables.ai"
                 style={{ display: 'block', background: '#C9A84C', color: '#0D1829', padding: '13px', borderRadius: 8, textDecoration: 'none', fontFamily: 'Georgia, serif', fontWeight: 600, fontSize: '14px' }}
               >
-                Download Dinner with Jesus — Free
+                Download Dinner with Jesus
               </a>
             </div>
 

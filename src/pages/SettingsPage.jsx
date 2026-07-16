@@ -575,7 +575,7 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
           className="btn"
           style={{ color: 'var(--gold)', borderColor: 'var(--border-gold)', background: 'var(--gold-soft)', width: '100%' }}
           onClick={() => {
-            const msg = `Check out Dinner with Jesus — one verse, one real conversation, one prayer at dinner. It's free and it's changing how families connect. flippingtables.ai 🙏`
+            const msg = `Check out Dinner with Jesus — one verse, one real conversation, one prayer at dinner. It's changing how families connect. flippingtables.ai 🙏`
             if (navigator.share) {
               navigator.share({ text: msg })
             } else {

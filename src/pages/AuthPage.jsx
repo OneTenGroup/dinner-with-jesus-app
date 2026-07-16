@@ -159,7 +159,7 @@ export default function AuthPage() {
       <div className="auth-switch">
         {mode === 'signin' ? (
           <>Don't have an account?{' '}
-            <button onClick={() => { setMode('signup'); setError('') }}>Sign up free</button>
+            <button onClick={() => { setMode('signup'); setError('') }}>Sign up</button>
           </>
         ) : (
           <>Already have an account?{' '}
