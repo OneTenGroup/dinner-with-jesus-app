@@ -126,11 +126,12 @@ export default function App() {
 
   if (!user) return <AuthPage />
 
-  if (user && profile && !profile.onboarding_complete && !onboardingDone) {
-    return <OnboardingPage onComplete={() => setOnboardingDone(true)} />
-  }
-
-  // Show KendylScene after app is ready — no blue screen
+  // KendylScene is checked before onboarding so it's the true opening
+  // moment for a brand-new user too -- not just something returning
+  // users see later. hasSeenTodaysScene() is false for anyone who's
+  // never seen it, so a first-time user gets it right here, then flows
+  // into onboarding once they dismiss it. Returning users (onboarding
+  // already complete) see the same daily-scene behavior as before.
   if (showKendyl) {
     return (
       <KendylScene onEnter={() => {
@@ -139,6 +140,10 @@ export default function App() {
         setKendylDismissed(true)
       }} />
     )
+  }
+
+  if (user && profile && !profile.onboarding_complete && !onboardingDone) {
+    return <OnboardingPage onComplete={() => setOnboardingDone(true)} />
   }
 
   function goToTable() {
