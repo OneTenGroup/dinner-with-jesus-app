@@ -15,6 +15,7 @@ import KendylScene, { hasSeenTodaysScene } from './components/KendylScene'
 import AdminPage from './pages/AdminPage'
 import GuestTablePage from './pages/GuestTablePage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
+import { setUpdateBusy, registerUpdateNotifyHandler, applyUpdateNow } from './lib/appUpdate'
 
 export default function App() {
   const { user, profile, loading } = useAuth()
@@ -28,6 +29,7 @@ export default function App() {
   const [showAdmin, setShowAdmin] = useState(false)
   const [appReady, setAppReady] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
+  const [updateReady, setUpdateReady] = useState(false)
 
   // Admin status is verified against the database, never assumed from the client.
   // Deny by default: if the check errors (e.g. the is_admin() function isn't
@@ -90,6 +92,18 @@ export default function App() {
     function handleGoToSettings() { setActiveTab('settings') }
     window.addEventListener('dwj-go-to-settings', handleGoToSettings)
     return () => window.removeEventListener('dwj-go-to-settings', handleGoToSettings)
+  }, [])
+
+  // A pending PWA update defers its reload while atTable is true --
+  // the same flag that already hides the bottom nav during the dinner
+  // flow, reused here so a reload never interrupts someone mid-verse,
+  // mid-question, or mid-prayer. See src/lib/appUpdate.js.
+  useEffect(() => {
+    setUpdateBusy(atTable)
+  }, [atTable])
+
+  useEffect(() => {
+    registerUpdateNotifyHandler(() => setUpdateReady(true))
   }, [])
 
   // Password-reset route — a dedicated path the branded reset email
@@ -167,6 +181,23 @@ export default function App() {
   return (
     <div className="app-shell">
       {showAdmin && <AdminPage onClose={() => setShowAdmin(false)} />}
+
+      {/* A pending update only ever reaches this banner while busy
+          (atTable, or actively typing a journal entry) -- otherwise it
+          reloads on its own the moment the user isn't busy anymore, with
+          no banner shown at all. This is the explicit "small notice"
+          fallback for someone who stays on a busy screen a while. */}
+      {updateReady && (
+        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, background: 'var(--bg2)', borderBottom: '1px solid var(--border-gold)', padding: '8px 14px', fontSize: '12px', color: 'var(--silver)' }}>
+          <span>A new version is ready.</span>
+          <button
+            onClick={applyUpdateNow}
+            style={{ background: 'none', border: 'none', color: 'var(--gold)', fontSize: '12px', fontWeight: 600, cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: '2px', padding: 0 }}
+          >
+            Refresh now
+          </button>
+        </div>
+      )}
 
       <div style={{ display: activeTab === 'home' ? 'block' : 'none', height: '100%', overflow: 'auto' }}>
         <HomePage

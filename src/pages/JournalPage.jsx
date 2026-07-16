@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useFamily } from '../hooks/useFamily'
+import { setUpdateBusy } from '../lib/appUpdate'
 
 const TABS = [
   { id: 'personal', label: 'My Journal' },
@@ -69,6 +70,7 @@ export default function JournalPage() {
       })
       if (error) throw error
       setNewNote('') // only clear the draft once the save is confirmed
+      setUpdateBusy(false) // draft cleared programmatically -- onChange won't fire, so clear the busy flag explicitly
       showToast('Saved to your journal. ✓')
       loadNotes()
     } catch (err) {
@@ -137,7 +139,9 @@ export default function JournalPage() {
           <span className="section-label">Add a note</span>
           <textarea
             value={newNote}
-            onChange={e => setNewNote(e.target.value)}
+            onChange={e => { setNewNote(e.target.value); setUpdateBusy(e.target.value.trim().length > 0) }}
+            onFocus={() => setUpdateBusy(true)}
+            onBlur={() => setUpdateBusy(newNote.trim().length > 0)}
             placeholder="Something on your heart today..."
             style={{ minHeight: 80, resize: 'none', marginBottom: 8 }}
           />
