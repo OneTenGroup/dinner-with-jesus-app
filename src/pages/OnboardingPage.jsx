@@ -210,8 +210,8 @@ export default function OnboardingPage({ onComplete }) {
           <p style={{ fontSize: '12px', color: 'var(--silver)', lineHeight: 1.8, marginBottom: '2rem', opacity: 0.75 }}>
             Next: a few quick questions, then you'll create your own table or join one you've been invited to.
           </p>
-          <button className="btn btn-gold" style={{ width: '100%' }} onClick={() => setStep(1)}>
-            Let's get started 🙏
+          <button className="btn btn-gold" style={{ width: '100%', padding: '15px 16px' }} onClick={() => setStep(1)}>
+            Let's begin 🙏
           </button>
         </div>
       )}
@@ -222,10 +222,10 @@ export default function OnboardingPage({ onComplete }) {
           <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
             <div className="cross" style={{ width: 32, height: 32, display: 'inline-block' }}></div>
           </div>
-          <h2 style={{ fontFamily: 'Lora, serif', fontSize: '1.3rem', color: 'var(--white)', marginBottom: '0.5rem', lineHeight: 1.3, textAlign: 'center' }}>
+          <h2 style={{ fontFamily: 'Lora, serif', fontSize: '1.3rem', color: 'var(--white)', marginBottom: '0.625rem', lineHeight: 1.4, textAlign: 'center' }}>
             {FAITH_STEPS[step - 1].question}
           </h2>
-          <p style={{ fontSize: '13px', color: 'var(--silver)', fontStyle: 'italic', marginBottom: '1.5rem', textAlign: 'center' }}>
+          <p style={{ fontSize: '13px', color: 'var(--silver)', fontStyle: 'italic', marginBottom: '1.75rem', textAlign: 'center', lineHeight: 1.6 }}>
             {FAITH_STEPS[step - 1].sub}
           </p>
           <div className="option-grid">
@@ -251,10 +251,11 @@ export default function OnboardingPage({ onComplete }) {
             <h2 style={{ fontFamily: 'Lora, serif', fontSize: '1.3rem', color: 'var(--white)', marginBottom: '0.5rem', lineHeight: 1.4 }}>
               Set up your dinner circle.
             </h2>
-            <p style={{ fontSize: '13px', color: 'var(--silver)', lineHeight: 1.7, fontStyle: 'italic' }}>
+            <p style={{ fontSize: '13px', color: 'var(--silver)', lineHeight: 1.75, fontStyle: 'italic' }}>
               Create your own circle or join one you've been invited to. Everyone in your circle sees the same verse every night.
             </p>
           </div>
+
 
           {circleMode === 'none' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>

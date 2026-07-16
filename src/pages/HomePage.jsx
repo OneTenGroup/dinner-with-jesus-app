@@ -299,28 +299,27 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
         </div>
       )}
 
-      {/* Brand */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: '1.25rem' }}>
-        <div className="cross" style={{ width: 28, height: 28 }}></div>
-        <div style={{ fontFamily: 'Lora, serif', fontSize: '1.05rem', fontWeight: 600, color: 'var(--white)' }}>
-          Dinner with <span style={{ color: 'var(--gold)' }}>Jesus</span>
+      {/* Header: brand mark + greeting, no card box -- this used to be
+          two separate bordered cards competing with Tonight's Table
+          for the same visual weight. Now it's a light page heading. */}
+      <div style={{ marginBottom: '1.5rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: '0.75rem' }}>
+          <div className="cross" style={{ width: 22, height: 22 }}></div>
+          <div style={{ fontFamily: 'Lora, serif', fontSize: '0.9rem', fontWeight: 600, color: 'var(--silver)', letterSpacing: '0.02em' }}>
+            Dinner with <span style={{ color: 'var(--gold)' }}>Jesus</span>
+          </div>
         </div>
-      </div>
-
-      {/* Greeting */}
-      <div style={{ ...sectionStyle, background: 'var(--bg2)' }}>
-        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: 'linear-gradient(90deg, var(--gold), transparent)' }} />
-        <div style={{ fontFamily: 'Lora, serif', fontSize: '1rem', color: 'var(--white)', lineHeight: 1.5, marginBottom: 4 }}>{greeting.msg}</div>
+        <div style={{ fontFamily: 'Lora, serif', fontSize: '1.2rem', color: 'var(--white)', lineHeight: 1.5, marginBottom: 4 }}>{greeting.msg}</div>
         <div style={{ fontSize: '13px', color: 'var(--silver2)', fontStyle: 'italic', fontWeight: 300 }}>{greeting.sub}</div>
       </div>
 
-      {/* Tonight's Table */}
-      <div style={sectionStyle}>
-        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: 'linear-gradient(90deg, var(--gold), transparent)' }} />
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
-          <span style={sectionTitleStyle}>Tonight's Table</span>
+      {/* Tonight's Table — the one unmistakable primary feature of Home */}
+      <div className="hero-card">
+        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '3px', background: 'linear-gradient(90deg, var(--gold), transparent)' }} />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
+          <span style={{ ...sectionTitleStyle, fontSize: '1.2rem' }}>Tonight's Table</span>
         </div>
-        <p style={sectionSubStyle}>The table is set. He's already here.</p>
+        <p style={{ ...sectionSubStyle, fontSize: '14px' }}>The table is set. He's already here.</p>
 
         {familyMembers.length === 0 ? (
           <p style={{ fontSize: '13px', color: 'var(--silver)', fontStyle: 'italic', marginBottom: '1rem', lineHeight: 1.6 }}>
@@ -349,14 +348,13 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
           </button>
         )}
 
-        <button className="btn btn-gold" onClick={onGoToTable}>
-          Let's Get Started 🙏
+        <button className="btn btn-gold" onClick={onGoToTable} style={{ padding: '15px 16px', fontSize: '16px' }}>
+          Come to the Table 🙏
         </button>
       </div>
 
-      {/* Time Verse */}
-      <div style={sectionStyle}>
-        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: 'linear-gradient(90deg, var(--gold), transparent)' }} />
+      {/* Time Verse — secondary: present, but shouldn't compete with Tonight's Table */}
+      <div className="card-quiet">
         <span style={sectionTitleStyle}>Your verse for this moment</span>
         <p style={{ fontSize: '13px', color: 'var(--silver)', lineHeight: 1.7, marginBottom: '1rem', fontStyle: 'italic' }}>
           What time was it when everything changed?
@@ -407,9 +405,8 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
         )}
       </div>
 
-      {/* Feelings Grid */}
-      <div style={sectionStyle}>
-        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: 'linear-gradient(90deg, var(--gold), transparent)' }} />
+      {/* Feelings Grid — secondary: present, but shouldn't compete with Tonight's Table */}
+      <div className="card-quiet">
         <span style={sectionTitleStyle}>Need a moment with God right now?</span>
         <p style={sectionSubStyle}>Pick what you're actually feeling. He already knows anyway.</p>
         <div className="feelings-grid">
@@ -422,12 +419,11 @@ export default function HomePage({ onGoToTable, activeMembers, setActiveMembers,
         </div>
       </div>
 
-      {/* Conversations */}
-      <div style={{ ...sectionStyle, textAlign: 'center', background: 'var(--bg3)', position: 'relative', overflow: 'hidden' }}>
-        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: 'linear-gradient(90deg, var(--gold), transparent)' }} />
-        <div style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>🍽️</div>
-        <p style={{ fontFamily: 'Lora, serif', fontSize: '17px', color: 'var(--gold)', lineHeight: 1.7, fontStyle: 'italic', fontWeight: 600 }}>{conversationMsg}</p>
-      </div>
+      {/* Conversations — a status readout, not an action, so it no longer
+          gets the same full card treatment as the actual features above */}
+      <p style={{ textAlign: 'center', fontFamily: 'Lora, serif', fontSize: '13px', color: 'var(--silver)', lineHeight: 1.7, fontStyle: 'italic', margin: '0.5rem 0 1.5rem', padding: '0 0.5rem' }}>
+        🍽️ {conversationMsg}
+      </p>
 
       {/* Share the app */}
       <div style={{ textAlign: 'center', marginBottom: '0.75rem' }}>

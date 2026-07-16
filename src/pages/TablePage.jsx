@@ -286,7 +286,14 @@ export default function TablePage({ onLeaveTable }) {
   const nextMember = nextPrayerId ? nameFor(nextPrayerId) : null
 
   const goldAccent = { position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: 'linear-gradient(90deg, var(--gold), transparent)' }
-  const cardBase = { position: 'relative', overflow: 'hidden', background: 'var(--bg2)', border: '1.5px solid #C9A84C', borderRadius: '12px', padding: '1.25rem', marginBottom: '1.25rem', boxShadow: '0 3px 10px rgba(0,0,0,0.45)' }
+  // cardBase: the Verse -> Conversation -> Prayer sequence itself --
+  // the three things this whole experience is actually about.
+  // cardQuiet: everything around that sequence (who's here, optional
+  // context, the closing journal entry) -- present, legible, but
+  // deliberately not competing with the three primary cards for
+  // attention. Presentation-only distinction, same underlying layout.
+  const cardBase = { position: 'relative', overflow: 'hidden', background: 'var(--bg2)', border: '1.5px solid #C9A84C', borderRadius: '12px', padding: '1.4rem', marginBottom: '1.25rem', boxShadow: '0 3px 10px rgba(0,0,0,0.45)' }
+  const cardQuiet = { position: 'relative', overflow: 'hidden', background: 'var(--bg2)', border: '0.5px solid var(--border)', borderRadius: '12px', padding: '1.1rem', marginBottom: '1rem' }
   const sectionTitle = { fontFamily: 'Lora, serif', fontSize: '1rem', fontWeight: 600, color: 'var(--white)', letterSpacing: '0.02em', marginBottom: '0.25rem', display: 'block' }
 
   if (loading) return (
@@ -326,8 +333,7 @@ export default function TablePage({ onLeaveTable }) {
     <div className="screen" style={{ paddingTop: '1rem' }}>
 
       {/* Who's at the table */}
-      <div style={{ ...cardBase, background: 'var(--bg3)' }}>
-        <div style={goldAccent} />
+      <div style={{ ...cardQuiet, background: 'var(--bg3)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
           <span style={{ ...sectionTitle, marginBottom: 0 }}>
             {group ? group.name : 'At the Table Tonight'}
@@ -383,10 +389,9 @@ export default function TablePage({ onLeaveTable }) {
 
       {/* Context */}
       {verse?.context_text && (
-        <div style={{ ...cardBase, background: 'var(--bg3)' }}>
-          <div style={goldAccent} />
+        <div style={{ ...cardQuiet, background: 'var(--bg3)' }}>
           <span style={sectionTitle}>A little context</span>
-          <p style={{ fontSize: '14px', color: 'var(--cream)', lineHeight: 1.75, fontWeight: 300 }}>
+          <p style={{ fontSize: '15px', color: 'var(--cream)', lineHeight: 1.8, fontWeight: 300 }}>
             {verse.context_text}
           </p>
         </div>
@@ -397,19 +402,19 @@ export default function TablePage({ onLeaveTable }) {
         <div style={cardBase}>
           <div style={goldAccent} />
           <span style={sectionTitle}>For the table tonight</span>
-          <p style={{ fontFamily: 'Lora, serif', fontSize: '1rem', color: 'var(--white)', lineHeight: 1.65, fontStyle: 'italic', marginTop: '0.5rem' }}>
+          <p style={{ fontFamily: 'Lora, serif', fontSize: '1.1rem', color: 'var(--white)', lineHeight: 1.75, fontStyle: 'italic', marginTop: '0.625rem' }}>
             {getQuestion(1)}
           </p>
           {verse.question_level_2 && (
-            <div style={{ marginTop: '1rem', borderTop: '0.5px solid var(--border)', paddingTop: '0.875rem' }}>
+            <div style={{ marginTop: '1.25rem', borderTop: '0.5px solid var(--border)', paddingTop: '1rem' }}>
               <p style={{ fontSize: '11px', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--silver2)', marginBottom: '0.5rem', fontWeight: 500 }}>Go deeper</p>
-              <p style={{ fontFamily: 'Lora, serif', fontSize: '0.9rem', color: 'var(--silver)', lineHeight: 1.6, fontStyle: 'italic' }}>{getQuestion(2)}</p>
+              <p style={{ fontFamily: 'Lora, serif', fontSize: '0.98rem', color: 'var(--silver)', lineHeight: 1.7, fontStyle: 'italic' }}>{getQuestion(2)}</p>
             </div>
           )}
           {verse.question_level_3 && (
-            <div style={{ marginTop: '0.875rem', borderTop: '0.5px solid var(--border)', paddingTop: '0.875rem' }}>
+            <div style={{ marginTop: '1rem', borderTop: '0.5px solid var(--border)', paddingTop: '1rem' }}>
               <p style={{ fontSize: '11px', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--silver2)', marginBottom: '0.5rem', fontWeight: 500 }}>Push further</p>
-              <p style={{ fontFamily: 'Lora, serif', fontSize: '0.9rem', color: 'var(--silver)', lineHeight: 1.6, fontStyle: 'italic' }}>{getQuestion(3)}</p>
+              <p style={{ fontFamily: 'Lora, serif', fontSize: '0.98rem', color: 'var(--silver)', lineHeight: 1.7, fontStyle: 'italic' }}>{getQuestion(3)}</p>
             </div>
           )}
         </div>
@@ -429,8 +434,8 @@ export default function TablePage({ onLeaveTable }) {
         <p style={{ fontFamily: 'Lora, serif', fontSize: '0.95rem', color: 'var(--white)', marginBottom: '0.35rem' }}>
           {currentPrayer ? `${currentPrayer}'s turn to pray` : 'Your turn to pray'}
         </p>
-        <div style={{ background: 'var(--bg3)', borderRadius: 10, padding: '1rem', marginBottom: '0.875rem', border: '0.5px solid var(--border)' }}>
-          <p style={{ fontFamily: 'Lora, serif', fontSize: '14px', fontStyle: 'italic', color: 'var(--cream)', lineHeight: 1.8 }}>
+        <div style={{ background: 'var(--bg3)', borderRadius: 10, padding: '1.1rem', marginBottom: '0.875rem', border: '0.5px solid var(--border)' }}>
+          <p style={{ fontFamily: 'Lora, serif', fontSize: '15px', fontStyle: 'italic', color: 'var(--cream)', lineHeight: 1.85 }}>
             {getPrayer()}
           </p>
           <p style={{ fontSize: '11px', color: 'var(--silver)', textAlign: 'right', marginTop: '0.5rem' }}>— Amen 🙏</p>
@@ -456,8 +461,7 @@ export default function TablePage({ onLeaveTable }) {
       </div>
 
       {/* Journal */}
-      <div style={cardBase}>
-        <div style={goldAccent} />
+      <div style={cardQuiet}>
         <span style={sectionTitle}>What happened at the table tonight</span>
         <p style={{ fontSize: '13px', color: 'var(--silver)', fontStyle: 'italic', marginBottom: '0.75rem', marginTop: '0.25rem' }}>
           Write it down. You'll want it later.
@@ -486,17 +490,16 @@ export default function TablePage({ onLeaveTable }) {
       </div>
 
       {/* Leave the table */}
-      <div style={{ ...cardBase, background: 'var(--bg3)', textAlign: 'center' }}>
-        <div style={goldAccent} />
-        <p style={{ fontFamily: 'Lora, serif', fontSize: '15px', color: 'var(--white)', marginBottom: '0.5rem' }}>
+      <div style={{ ...cardQuiet, background: 'var(--bg3)', textAlign: 'center', padding: '1.75rem 1.4rem' }}>
+        <p style={{ fontFamily: 'Lora, serif', fontSize: '17px', color: 'var(--white)', marginBottom: '0.625rem' }}>
           It is finished.
         </p>
-        <p style={{ fontSize: '13px', color: 'var(--silver)', marginBottom: '1rem', fontStyle: 'italic' }}>
+        <p style={{ fontSize: '13px', color: 'var(--silver)', marginBottom: '1.5rem', fontStyle: 'italic', lineHeight: 1.7 }}>
           When you're ready to leave the table, tap below.
         </p>
         <button
           className="btn"
-          style={{ width: '100%', color: 'var(--gold)', borderColor: 'var(--border-gold)', background: 'var(--gold-soft)' }}
+          style={{ width: '100%', padding: '15px 16px', color: 'var(--gold)', borderColor: 'var(--border-gold)', background: 'var(--gold-soft)' }}
           onClick={handleLeaveTable}
         >
           🕊 Leave the Table
