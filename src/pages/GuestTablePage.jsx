@@ -16,43 +16,41 @@ export default function GuestTablePage() {
   async function loadGuestTable() {
     setLoading(true)
     try {
-      // Find the group by invite code
-      const { data: groupData, error: groupError } = await supabase
-        .from('groups')
-        .select('id, name')
-        .eq('invite_code', inviteCode.toUpperCase())
-        .single()
+      // get_guest_table_by_invite_code() is a SECURITY DEFINER RPC (see
+      // 20260714000001_security_primitives.sql). This is the app's one
+      // unauthenticated route, so anon has no standing SELECT on
+      // groups/group_verse/dinner_verses -- granting one would let
+      // anyone enumerate every group's invite code and verse-of-the-day,
+      // not just the one this visitor was given. The RPC returns only
+      // the fields this screen renders.
+      const { data, error } = await supabase.rpc('get_guest_table_by_invite_code', {
+        invite_code_input: inviteCode
+      })
 
-      if (groupError || !groupData) {
+      if (error || !data || data.length === 0) {
         setError('Table not found. Check your invite code and try again.')
         setLoading(false)
         return
       }
 
-      setGroup(groupData)
+      const row = data[0]
+      setGroup({ name: row.group_name })
 
-      // Get today's verse for this group
-      const today = new Date().toISOString().split('T')[0]
-      const { data: sticky } = await supabase
-        .from('group_verse')
-        .select('dinner_verse_id')
-        .eq('group_id', groupData.id)
-        .eq('verse_date', today)
-        .single()
-
-      if (!sticky?.dinner_verse_id) {
+      if (!row.verse_ref) {
         setError("Tonight's verse hasn't been set yet. Ask the table owner to set it first.")
         setLoading(false)
         return
       }
 
-      const { data: verseData } = await supabase
-        .from('dinner_verses')
-        .select('*')
-        .eq('id', sticky.dinner_verse_id)
-        .single()
-
-      setVerse(verseData)
+      setVerse({
+        verse_ref: row.verse_ref,
+        category: row.category,
+        verse_text: row.verse_text,
+        context_text: row.context_text,
+        question_level_1: row.question_level_1,
+        question_level_2: row.question_level_2,
+        prayer_level_1: row.prayer_level_1
+      })
     } catch (err) {
       setError('Could not load the table. Please try again.')
     }

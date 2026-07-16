@@ -133,30 +133,16 @@ export default function OnboardingPage({ onComplete }) {
     setStep(5)
   }
 
+  // get_or_create_tonight_session() (20260714000004_shared_dinner_session.sql)
+  // is the single, atomic, server-side "lock tonight's verse" operation --
+  // see HomePage.jsx's copy of this comment for why the client-side
+  // check-then-upsert this replaced was a real race.
   async function lockVerse(groupId) {
     try {
-      const today = new Date().toISOString().split('T')[0]
-      const { data: existing } = await supabase
-        .from('group_verse')
-        .select('id')
-        .eq('group_id', groupId)
-        .eq('verse_date', today)
-        .single()
-      if (existing) { setVerseLocked(true); return }
-
-      const { data: allVerses } = await supabase
-        .from('dinner_verses')
-        .select('id')
-        .eq('active', true)
-        .limit(200)
-
-      if (!allVerses || allVerses.length === 0) return
-      const picked = allVerses[Math.floor(Math.random() * allVerses.length)]
-      await supabase.from('group_verse').upsert({
-        group_id: groupId,
-        dinner_verse_id: picked.id,
-        verse_date: today
-      }, { onConflict: 'group_id,verse_date' })
+      const { data, error } = await supabase.rpc('get_or_create_tonight_session', {
+        group_id_input: groupId
+      })
+      if (error || !data || data.length === 0) return
       setVerseLocked(true)
       track('verse_locked', { from: 'onboarding' })
     } catch (err) {}

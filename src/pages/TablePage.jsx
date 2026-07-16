@@ -3,6 +3,26 @@ import { useAuth } from '../context/AuthContext'
 import { useFamily } from '../hooks/useFamily'
 import { supabase } from '../lib/supabase'
 import { track } from '../lib/analytics'
+import ChurchCTA from '../components/ChurchCTA'
+
+// Church/group CTA eligibility: local-only, no backend. Never shown
+// before a family's 3rd completed dinner, at most once every 14 days,
+// and never again once permanently dismissed.
+const CHURCH_CTA_COOLDOWN_MS = 14 * 24 * 60 * 60 * 1000
+const CHURCH_CTA_MIN_DINNERS = 3
+
+function isChurchCTAEligible() {
+  try {
+    if (localStorage.getItem('dwj_church_cta_dismissed_forever') === 'true') return false
+    const count = Number(localStorage.getItem('dwj_table_leaves_count') || '0') + 1
+    localStorage.setItem('dwj_table_leaves_count', String(count))
+    if (count < CHURCH_CTA_MIN_DINNERS) return false
+    const lastShown = Number(localStorage.getItem('dwj_church_cta_last_shown') || '0')
+    return Date.now() - lastShown > CHURCH_CTA_COOLDOWN_MS
+  } catch {
+    return false // localStorage unavailable (private browsing, etc.) -- never obstruct the exit path
+  }
+}
 
 const BLESSINGS = [
   "Go now — and carry what happened at this table into the rest of your night. I'll be here tomorrow. Same time. Same table. Don't be late. 🙏",
@@ -14,8 +34,8 @@ const BLESSINGS = [
 ]
 
 export default function TablePage({ onLeaveTable }) {
-  const { user, profile } = useAuth()
-  const { group, members } = useFamily()
+  const { user } = useAuth()
+  const { group, members, memberProfiles } = useFamily()
 
   const [verse, setVerse] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -26,118 +46,117 @@ export default function TablePage({ onLeaveTable }) {
   const [toast, setToast] = useState('')
   const [showBlessing, setShowBlessing] = useState(false)
   const [blessing, setBlessing] = useState('')
+  const [showChurchCTA, setShowChurchCTA] = useState(false)
   const [showPrayerOverlay, setShowPrayerOverlay] = useState(false)
-  const [prayerIdx, setPrayerIdx] = useState(0)
-  const [prayedCount, setPrayedCount] = useState(0)
+  // prayerOrder + prayerTurnsCompleted come from the shared group_verse
+  // row (via get_or_create_tonight_session / complete_prayer_turn) --
+  // never generated or advanced locally. Every member's device resolves
+  // the same "whose turn" from the same two values.
+  const [prayerOrder, setPrayerOrder] = useState([])
+  const [prayerTurnsCompleted, setPrayerTurnsCompleted] = useState(0)
+  const [markingPrayer, setMarkingPrayer] = useState(false)
   const [discussed, setDiscussed] = useState(false)
-  const prayerInitialized = useRef(false)
+  const [markingDiscussed, setMarkingDiscussed] = useState(false)
+  const savedTargetsRef = useRef(new Set()) // tracks which targets already saved this draft, so a retry after a partial failure doesn't duplicate
 
-  const faithLevel = profile?.faith_level || 1
-
-  // Initialize prayer rotation randomly once members are loaded
-  useEffect(() => {
-    if (members.length > 0 && !prayerInitialized.current) {
-      const randomStart = Math.floor(Math.random() * members.length)
-      setPrayerIdx(randomStart)
-      prayerInitialized.current = true
-    }
-  }, [members])
+  // id -> display name, built from the same get_my_group_members() data
+  // useFamily() already loads -- prayer_order stores ids, not names, so
+  // two members who happen to share a first name can't be confused.
+  const nameById = new Map((memberProfiles || []).map(p => [p.id, p.name]))
+  const nameFor = id => nameById.get(id) || 'Someone'
 
   useEffect(() => {
     loadVerse()
   }, [group?.id])
 
   async function loadVerse() {
+    // The render below already requires a group before showing any verse
+    // content (see the `if (!group) return ...` guard further down), so
+    // there is nothing to load until group.id is known.
+    if (!group?.id) {
+      setLoading(false)
+      return
+    }
     setLoading(true)
     setError(null)
     try {
-      const today = new Date().toISOString().split('T')[0]
-      const groupId = group?.id
-
-      if (groupId) {
-        const { data: sticky } = await supabase
-          .from('group_verse')
-          .select('dinner_verse_id')
-          .eq('group_id', groupId)
-          .eq('verse_date', today)
-          .single()
-
-        if (sticky?.dinner_verse_id) {
-          const { data: verseData } = await supabase
-            .from('dinner_verses')
-            .select('*')
-            .eq('id', sticky.dinner_verse_id)
-            .single()
-          if (verseData) {
-            setVerse(verseData)
-            track('verse_loaded', { verse_ref: verseData.verse_ref, source: 'sticky_note' })
-            const { data: historyData } = await supabase
-              .from('verse_history')
-              .select('id')
-              .eq('dinner_verse_id', verseData.id)
-              .eq('user_id', user.id)
-              .gte('discussed_at', today)
-              .single()
-            setDiscussed(!!historyData)
-            setLoading(false)
-            return
-          }
-        }
-      }
-
-      const { data: historyData } = await supabase
-        .from('verse_history')
-        .select('dinner_verse_id')
-
-      const discussedIds = historyData?.map(d => d.dinner_verse_id) || []
-
-      const { data: allVerses, error: versesError } = await supabase
-        .from('dinner_verses')
-        .select('*')
-        .eq('active', true)
-        .limit(200)
-
-      if (versesError) throw versesError
-      if (!allVerses || allVerses.length === 0) {
-        setError('No verses found.')
+      // get_or_create_tonight_session() is the single source of truth for
+      // "tonight's dinner" -- atomically gets the existing shared session
+      // for this group+date, or creates it once if none exists yet (see
+      // 20260714000004_shared_dinner_session.sql). Every member's device
+      // calling this converges on the same verse, questions, prayer, and
+      // prayer_order -- never a separate pick per device.
+      const { data, error: rpcError } = await supabase.rpc('get_or_create_tonight_session', {
+        group_id_input: group.id
+      })
+      if (rpcError) throw rpcError
+      const session = data?.[0]
+      if (!session) {
+        setError('Could not load verse. Please try again.')
         setLoading(false)
         return
       }
 
-      const available = discussedIds.length > 0
-        ? allVerses.filter(v => !discussedIds.includes(v.id))
-        : allVerses
-      const pool = available.length > 0 ? available : allVerses
-      const picked = pool[Math.floor(Math.random() * pool.length)]
-      setVerse(picked)
+      setVerse({
+        id: session.dinner_verse_id,
+        verse_ref: session.verse_ref,
+        category: session.category,
+        verse_text: session.verse_text,
+        context_text: session.context_text,
+        question_level_1: session.question_level_1,
+        question_level_2: session.question_level_2,
+        question_level_3: session.question_level_3,
+        // session.prayer_text is already resolved server-side from the
+        // session's stored prayer_tier -- the exact same value every
+        // member and every guest receives for this dinner.
+        prayer_level_1: session.prayer_text
+      })
+      setPrayerOrder(session.prayer_order || [])
+      setPrayerTurnsCompleted(session.prayer_turns_completed || 0)
+      track('verse_loaded', { verse_ref: session.verse_ref })
 
-      if (groupId && picked) {
-        const today = new Date().toISOString().split('T')[0]
-        await supabase
-          .from('group_verse')
-          .upsert({ group_id: groupId, dinner_verse_id: picked.id, verse_date: today }, { onConflict: 'group_id,verse_date' })
+      const orderLen = (session.prayer_order || []).length
+      if (orderLen > 0 && (session.prayer_turns_completed || 0) >= orderLen) {
+        showToast("Your family already completed tonight's dinner. 🙏")
       }
 
+      // session.verse_date is the canonical dinner date the RPC already
+      // computed server-side (group timezone + 4am cutoff) -- used here
+      // instead of a client-computed date, so this check can't drift
+      // from what the RPC considers "tonight."
+      const { data: historyData } = await supabase
+        .from('verse_history')
+        .select('id')
+        .eq('dinner_verse_id', session.dinner_verse_id)
+        .eq('user_id', user.id)
+        .gte('discussed_at', session.verse_date)
+        .single()
+      setDiscussed(!!historyData)
     } catch (err) {
+      console.error('[table:loadVerse]', err?.message)
       setError('Could not load verse. Please try again.')
     }
     setLoading(false)
   }
 
   async function markDiscussed() {
-    if (!verse || discussed) return
+    if (!verse || discussed || markingDiscussed) return // prevent double submission
+    setMarkingDiscussed(true)
     try {
-      await supabase.from('verse_history').upsert({
+      const { error } = await supabase.from('verse_history').upsert({
         dinner_verse_id: verse.id,
         user_id: user.id,
         discussed_at: new Date().toISOString()
       }, { onConflict: 'dinner_verse_id,user_id' })
+      if (error) throw error
       setDiscussed(true)
       track('discussion_marked', { verse_ref: verse.verse_ref })
       showToast('Beautiful conversation tonight. 🙏')
     } catch (err) {
-      showToast('Could not save. Try again.')
+      console.error('[table:markDiscussed]', err?.message)
+      showToast("That didn't save. Tap it again when you're ready.")
     }
+    setMarkingDiscussed(false)
   }
 
   function getQuestion(level) {
@@ -149,53 +168,81 @@ export default function TablePage({ onLeaveTable }) {
 
   function getPrayer() {
     if (!verse) return ''
-    if (faithLevel === 3 && verse.prayer_level_3) return verse.prayer_level_3
-    if (faithLevel === 2 && verse.prayer_level_2) return verse.prayer_level_2
+    // Always the same level for everyone at the table -- this used to be
+    // chosen per-viewer from their own profile.faith_level, which meant
+    // two people at the same table could read a different prayer for the
+    // same verse. "One Prayer" means one prayer, not one per viewer.
     return verse.prayer_level_1 || ''
   }
 
-  function nextPrayer() {
-    const newIdx = prayerIdx + 1
-    const justPrayed = members[prayerIdx % members.length]
-    const upNext = members[newIdx % members.length]
-    const newCount = prayedCount + 1
-    setPrayedCount(newCount)
-    setPrayerIdx(newIdx)
-    if (newCount >= members.length) {
-      track('prayer_completed', { member_count: members.length })
-      showToast(`Everyone has prayed tonight. 🙏`)
-    } else {
-      showToast(`${justPrayed} prayed. ${upNext} is up next. 🙏`)
+  async function nextPrayer() {
+    if (!group?.id || allPrayed || markingPrayer) return // prevent double submission
+    setMarkingPrayer(true)
+    try {
+      // complete_prayer_turn() is atomic and idempotent per turn (see
+      // 20260714000004_shared_dinner_session.sql) -- it only advances if
+      // expected_turns_completed still matches the shared row's current
+      // value. Two devices racing to complete the same turn will not
+      // double-advance and skip a person; the loser of the race simply
+      // gets back the already-advanced state.
+      const justPrayedId = prayerOrder[prayerTurnsCompleted]
+      const { data, error } = await supabase.rpc('complete_prayer_turn', {
+        group_id_input: group.id,
+        expected_turns_completed: prayerTurnsCompleted
+      })
+      if (error) throw error
+      const result = data?.[0]
+      if (!result) throw new Error('No result')
+      setPrayerTurnsCompleted(result.prayer_turns_completed)
+      if (result.all_prayed) {
+        track('prayer_completed', { member_count: prayerOrder.length })
+        showToast('Everyone has prayed tonight. 🙏')
+      } else {
+        const upNextId = prayerOrder[result.prayer_turns_completed]
+        showToast(`${nameFor(justPrayedId)} prayed. ${nameFor(upNextId)} is up next. 🙏`)
+      }
+    } catch (err) {
+      console.error('[table:nextPrayer]', err?.message)
+      showToast("That didn't save. Tap it again when you're ready.")
     }
+    setMarkingPrayer(false)
   }
 
   async function saveNote() {
     if (!noteText.trim()) { showToast('Write something first.'); return }
+    if (savingNote) return // prevent double submission
     setSavingNote(true)
+    const saved = savedTargetsRef.current
     try {
-      if (noteTarget === 'personal' || noteTarget === 'both') {
-        await supabase.from('notes').insert({
+      if ((noteTarget === 'personal' || noteTarget === 'both') && !saved.has('personal')) {
+        const { error } = await supabase.from('notes').insert({
           user_id: user.id,
           verse_ref: verse?.verse_ref,
           category: verse?.category,
           content: noteText,
           family_id: null
         })
+        if (error) throw error
+        saved.add('personal') // don't re-insert this half if the group insert below fails and the user retries
       }
-      if ((noteTarget === 'group' || noteTarget === 'both') && group?.id) {
-        await supabase.from('notes').insert({
+      if ((noteTarget === 'group' || noteTarget === 'both') && group?.id && !saved.has('group')) {
+        const { error } = await supabase.from('notes').insert({
           user_id: user.id,
           verse_ref: verse?.verse_ref,
           category: verse?.category,
           content: noteText,
           family_id: group.id
         })
+        if (error) throw error
+        saved.add('group')
       }
       track('journal_saved', { target: noteTarget })
       showToast('Saved. ✓')
-      setNoteText('')
+      setNoteText('') // only clear the draft once every save is confirmed
+      saved.clear()
     } catch (err) {
-      showToast('Could not save. Try again.')
+      console.error('[table:saveNote]', err?.message)
+      showToast("That didn't save. Your words are still here — try again.")
     }
     setSavingNote(false)
   }
@@ -209,6 +256,19 @@ export default function TablePage({ onLeaveTable }) {
   function confirmLeave() {
     track('table_left')
     setShowBlessing(false)
+    if (isChurchCTAEligible()) {
+      setShowChurchCTA(true)
+    } else if (onLeaveTable) {
+      onLeaveTable()
+    }
+  }
+
+  function dismissChurchCTA(forever) {
+    try {
+      localStorage.setItem('dwj_church_cta_last_shown', String(Date.now()))
+      if (forever) localStorage.setItem('dwj_church_cta_dismissed_forever', 'true')
+    } catch { /* ignore -- never block leaving the table over storage failures */ }
+    setShowChurchCTA(false)
     if (onLeaveTable) onLeaveTable()
   }
 
@@ -217,9 +277,13 @@ export default function TablePage({ onLeaveTable }) {
     setTimeout(() => setToast(''), 3000)
   }
 
-  const allPrayed = members.length > 0 && prayedCount >= members.length
-  const currentPrayer = members.length > 0 ? members[prayerIdx % members.length] : null
-  const nextMember = members.length > 1 ? members[(prayerIdx + 1) % members.length] : null
+  // Derived entirely from the shared prayerOrder/prayerTurnsCompleted --
+  // never from local state -- so every device renders the same person.
+  const allPrayed = prayerOrder.length > 0 && prayerTurnsCompleted >= prayerOrder.length
+  const currentPrayerId = prayerOrder.length > 0 && !allPrayed ? prayerOrder[prayerTurnsCompleted] : null
+  const nextPrayerId = prayerOrder.length > 1 && prayerTurnsCompleted + 1 < prayerOrder.length ? prayerOrder[prayerTurnsCompleted + 1] : null
+  const currentPrayer = currentPrayerId ? nameFor(currentPrayerId) : null
+  const nextMember = nextPrayerId ? nameFor(nextPrayerId) : null
 
   const goldAccent = { position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: 'linear-gradient(90deg, var(--gold), transparent)' }
   const cardBase = { position: 'relative', overflow: 'hidden', background: 'var(--bg2)', border: '1.5px solid #C9A84C', borderRadius: '12px', padding: '1.25rem', marginBottom: '1.25rem', boxShadow: '0 3px 10px rgba(0,0,0,0.45)' }
@@ -288,16 +352,16 @@ export default function TablePage({ onLeaveTable }) {
         </div>
         {members.length > 0 ? (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {members.map((m, i) => (
-              <span key={m} style={{
+            {(memberProfiles && memberProfiles.length > 0 ? memberProfiles : members.map(m => ({ id: m, name: m }))).map(p => (
+              <span key={p.id} style={{
                 fontSize: '12px',
                 color: 'var(--cream)',
-                background: i === prayerIdx % members.length && !allPrayed ? 'var(--gold-soft)' : 'var(--bg4)',
-                border: `0.5px solid ${i === prayerIdx % members.length && !allPrayed ? 'var(--border-gold)' : 'var(--border)'}`,
+                background: p.id === currentPrayerId && !allPrayed ? 'var(--gold-soft)' : 'var(--bg4)',
+                border: `0.5px solid ${p.id === currentPrayerId && !allPrayed ? 'var(--border-gold)' : 'var(--border)'}`,
                 borderRadius: 999,
                 padding: '4px 12px'
               }}>
-                {m}
+                {p.name}
               </span>
             ))}
           </div>
@@ -385,9 +449,9 @@ export default function TablePage({ onLeaveTable }) {
           className="btn btn-gold"
           style={{ width: '100%', opacity: discussed ? 0.6 : 1 }}
           onClick={markDiscussed}
-          disabled={discussed}
+          disabled={discussed || markingDiscussed}
         >
-          {discussed ? '✓ Conversation saved for tonight' : '✓ We discussed this tonight 🙏'}
+          {discussed ? '✓ Conversation saved for tonight' : markingDiscussed ? 'Saving...' : '✓ We discussed this tonight 🙏'}
         </button>
       </div>
 
@@ -400,7 +464,7 @@ export default function TablePage({ onLeaveTable }) {
         </p>
         <textarea
           value={noteText}
-          onChange={e => setNoteText(e.target.value)}
+          onChange={e => { setNoteText(e.target.value); savedTargetsRef.current.clear() }}
           placeholder="Something someone said that you never want to forget..."
           style={{ minHeight: 72, resize: 'none', marginBottom: 8 }}
         />
@@ -465,6 +529,14 @@ export default function TablePage({ onLeaveTable }) {
             Amen. Good night. 🙏
           </button>
         </div>
+      )}
+
+      {/* Church/group CTA — post-dinner only, rate-limited, dismissible forever */}
+      {showChurchCTA && (
+        <ChurchCTA
+          onMaybeLater={() => dismissChurchCTA(false)}
+          onDontShowAgain={() => dismissChurchCTA(true)}
+        />
       )}
 
       <div className={`toast ${toast ? 'show' : ''}`}>{toast}</div>

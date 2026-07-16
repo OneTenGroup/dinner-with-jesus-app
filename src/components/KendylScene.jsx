@@ -236,13 +236,13 @@ function getDayKey() {
 
 export function hasSeenTodaysScene() {
   try {
-    return sessionStorage.getItem('dwj_seen_this_session') === 'true'
+    return localStorage.getItem(getDayKey()) === 'true'
   } catch (e) { return false }
 }
 
 function markSeenToday() {
   try {
-    sessionStorage.setItem('dwj_seen_this_session', 'true')
+    localStorage.setItem(getDayKey(), 'true')
   } catch (e) {}
 }
 

@@ -12,50 +12,39 @@ const FAITH_LABELS = {
 
 const TRANSLATIONS = ['KJV', 'NIV', 'NLT', 'ESV', 'NKJV']
 
+// A curated set of IANA zone names, not an exhaustive list -- the
+// database validates whatever is actually sent (groups_timezone_valid
+// check constraint, 20260714000004_shared_dinner_session.sql), so this
+// is only a convenience picker, not the source of truth for validity.
+const TIMEZONES = [
+  { value: 'America/New_York', label: 'Eastern (New York)' },
+  { value: 'America/Chicago', label: 'Central (Chicago)' },
+  { value: 'America/Denver', label: 'Mountain (Denver)' },
+  { value: 'America/Phoenix', label: 'Arizona (no DST)' },
+  { value: 'America/Los_Angeles', label: 'Pacific (Los Angeles)' },
+  { value: 'America/Anchorage', label: 'Alaska' },
+  { value: 'Pacific/Honolulu', label: 'Hawaii' },
+]
+
+// get_or_create_tonight_session() (20260714000004_shared_dinner_session.sql)
+// is the single, atomic, server-side "lock tonight's verse" operation --
+// see HomePage.jsx's copy of this same comment for why the client-side
+// check-then-upsert this replaced was a real race, and why there's no
+// separate "alreadyLocked" branch to handle anymore (the RPC is
+// idempotent -- calling it when a verse is already locked just returns
+// the existing session).
 async function lockVerseForGroup(groupId) {
   if (!groupId) return { error: 'No group found' }
-  const today = new Date().toISOString().split('T')[0]
-
-  const { data: existing } = await supabase
-    .from('group_verse')
-    .select('dinner_verse_id')
-    .eq('group_id', groupId)
-    .eq('verse_date', today)
-    .single()
-
-  if (existing?.dinner_verse_id) return { alreadyLocked: true }
-
-  const { data: historyData } = await supabase
-    .from('verse_history')
-    .select('dinner_verse_id')
-
-  const discussedIds = historyData?.map(d => d.dinner_verse_id) || []
-
-  const { data: allVerses } = await supabase
-    .from('dinner_verses')
-    .select('id')
-    .eq('active', true)
-    .limit(200)
-
-  if (!allVerses || allVerses.length === 0) return { error: 'No verses available' }
-
-  const available = discussedIds.length > 0
-    ? allVerses.filter(v => !discussedIds.includes(v.id))
-    : allVerses
-  const pool = available.length > 0 ? available : allVerses
-  const picked = pool[Math.floor(Math.random() * pool.length)]
-
-  const { error } = await supabase
-    .from('group_verse')
-    .upsert({ group_id: groupId, dinner_verse_id: picked.id, verse_date: today }, { onConflict: 'group_id,verse_date' })
-
-  if (error) return { error: 'Could not lock verse' }
-  return { success: true }
+  const { data, error } = await supabase.rpc('get_or_create_tonight_session', {
+    group_id_input: groupId
+  })
+  if (error || !data || data.length === 0) return { error: 'Could not lock verse' }
+  return { success: true, wasCreated: data[0].was_created }
 }
 
 export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
   const { user, profile, signOut, updateProfile } = useAuth()
-  const { group, members, createGroup, joinGroup, leaveGroup, removeMember } = useFamily()
+  const { group, members, memberProfiles, createGroup, joinGroup, leaveGroup, removeMember, reload: reloadFamily } = useFamily()
 
   const [toast, setToast] = useState('')
   const [mode, setMode] = useState('none')
@@ -73,31 +62,28 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [accountSaving, setAccountSaving] = useState(false)
-  const [memberProfiles, setMemberProfiles] = useState([])
   const [removeConfirm, setRemoveConfirm] = useState(null) // { id, name } of member pending removal
   const [removing, setRemoving] = useState(false)
+  const [savingTimezone, setSavingTimezone] = useState(false)
 
+  // memberProfiles (id + name only, never email) comes from useFamily(),
+  // which sources it from the get_my_group_members() RPC -- profiles
+  // has no same-group SELECT policy, so a direct query here would
+  // return nothing for anyone but the caller's own row.
   useEffect(() => {
     checkVerseLocked()
-    loadMemberProfiles()
   }, [group])
-
-  async function loadMemberProfiles() {
-    if (!group?.id) { setMemberProfiles([]); return }
-    try {
-      const { data } = await supabase
-        .from('profiles')
-        .select('id, name')
-        .eq('group_id', group.id)
-      setMemberProfiles(data || [])
-    } catch (err) {
-      setMemberProfiles([])
-    }
-  }
 
   async function checkVerseLocked() {
     if (!group?.id) return
-    const today = new Date().toISOString().split('T')[0]
+    // get_canonical_dinner_date_for_group() resolves "today" using the
+    // group's own timezone + 4am cutoff, server-side -- not a
+    // client-computed date, and without the side effect of creating a
+    // session just to check whether one exists yet.
+    const { data: today } = await supabase.rpc('get_canonical_dinner_date_for_group', {
+      group_id_input: group.id
+    })
+    if (!today) return
     const { data } = await supabase
       .from('group_verse')
       .select('id')
@@ -111,17 +97,34 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
     if (!group?.id) { showToast('You need a dinner circle first.'); return }
     setLockingVerse(true)
     const result = await lockVerseForGroup(group.id)
-    if (result.alreadyLocked) {
-      showToast("Tonight's verse is already set. 🙏")
-      setVerseLocked(true)
-    } else if (result.success) {
+    if (result.success) {
       track('verse_locked')
-      showToast("Tonight's verse is set! Now share your invite code. 🙏")
+      showToast(result.wasCreated ? "Tonight's table is ready. 🙏" : 'Tonight\'s table was already set. 🙏')
       setVerseLocked(true)
     } else {
       showToast(result.error || 'Could not set verse. Try again.')
     }
     setLockingVerse(false)
+  }
+
+  async function handleChangeTimezone(tz) {
+    if (!group?.id || !group.isOwner || tz === group.timezone) return
+    setSavingTimezone(true)
+    try {
+      // groups_update_owner RLS policy already permits this (owner-only
+      // update on their own group). The database's own
+      // groups_timezone_valid check constraint validates tz server-side
+      // regardless of what this picker offers -- this call cannot store
+      // an unvalidated value even if the client were compromised.
+      const { error } = await supabase.from('groups').update({ timezone: tz }).eq('id', group.id)
+      if (error) throw error
+      await reloadFamily()
+      showToast('Table timezone updated. Future dinners will use it. ✓')
+    } catch (err) {
+      console.error('[settings:handleChangeTimezone]', err?.message)
+      showToast('Could not update timezone. Try again.')
+    }
+    setSavingTimezone(false)
   }
 
   function showToast(msg) {
@@ -178,8 +181,9 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
     if (result.error) {
       showToast(result.error)
     } else {
+      // removeMember() already reloads group/memberProfiles internally
+      // on success (see useFamily.js) -- no separate refresh needed here.
       showToast(`${removeConfirm.name} has been removed from the table.`)
-      await loadMemberProfiles()
     }
     setRemoveConfirm(null)
     setRemoving(false)
@@ -201,13 +205,23 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
   }
 
   async function handleTranslation(t) {
-    await updateProfile({ preferred_translation: t })
-    showToast(`Translation set to ${t} ✓`)
+    const { error } = await updateProfile({ preferred_translation: t })
+    if (error) {
+      console.error('[settings:handleTranslation]', error.message)
+      showToast('Could not update translation. Try again.')
+    } else {
+      showToast(`Translation set to ${t} ✓`)
+    }
   }
 
   async function handleFaithLevel(level) {
-    await updateProfile({ faith_level: level })
-    showToast('Faith journey level updated ✓')
+    const { error } = await updateProfile({ faith_level: level })
+    if (error) {
+      console.error('[settings:handleFaithLevel]', error.message)
+      showToast('Could not update faith level. Try again.')
+    } else {
+      showToast('Faith journey level updated ✓')
+    }
   }
 
   async function handleUpdateName() {
@@ -399,6 +413,27 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
             </button>
           </div>
 
+          {/* Table timezone — owner only. Determines when "tonight's"
+              dinner day starts/ends (4am local cutoff) for every member,
+              regardless of their own device's timezone. */}
+          {group.isOwner && (
+            <div style={{ background: 'var(--bg3)', borderRadius: 10, padding: '0.875rem', marginBottom: '0.875rem', border: '0.5px solid var(--border)' }}>
+              <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.5rem', lineHeight: 1.6 }}>
+                <span style={{ color: 'var(--gold)', fontWeight: 500 }}>Table timezone:</span> used to decide when tonight's dinner begins for everyone at the table, no matter where they are.
+              </p>
+              <select
+                value={group.timezone || 'America/Chicago'}
+                onChange={e => handleChangeTimezone(e.target.value)}
+                disabled={savingTimezone}
+                style={{ width: '100%' }}
+              >
+                {TIMEZONES.map(tz => (
+                  <option key={tz.value} value={tz.value}>{tz.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {/* Invite code */}
           <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.75rem', fontWeight: 300 }}>Share this code so others can join your table.</p>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--bg3)', borderRadius: 10, padding: '0.875rem 1rem', border: '0.5px solid var(--border-gold)', marginBottom: '0.875rem' }}>
@@ -564,7 +599,13 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
         <button className="btn" style={{ marginBottom: '0.75rem', color: 'var(--gold)', borderColor: 'var(--border-gold)', background: 'var(--gold-soft)' }} onClick={onOpenAdmin}>⚙️ Admin Dashboard</button>
       )}
 
-      <button className="btn" style={{ marginBottom: '2rem', color: '#E57373', borderColor: 'rgba(229,115,115,0.2)' }} onClick={signOut}>Sign out</button>
+      <button className="btn" style={{ marginBottom: '0.75rem', color: '#E57373', borderColor: 'rgba(229,115,115,0.2)' }} onClick={signOut}>Sign out</button>
+
+      <p style={{ textAlign: 'center', marginBottom: '2rem' }}>
+        <a href="/delete-account" target="_blank" rel="noreferrer" style={{ fontSize: '12px', color: 'var(--silver)', opacity: 0.6, textDecoration: 'underline', textUnderlineOffset: '3px' }}>
+          Delete my account
+        </a>
+      </p>
 
       <div className={`toast ${toast ? 'show' : ''}`}>{toast}</div>
     </div>

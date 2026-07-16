@@ -15,8 +15,6 @@ import KendylScene, { hasSeenTodaysScene } from './components/KendylScene'
 import AdminPage from './pages/AdminPage'
 import GuestTablePage from './pages/GuestTablePage'
 
-const ADMIN_USER_ID = '28356e7e-067c-49a8-81a2-095576c432a7'
-
 function ResetPasswordScreen({ onDone }) {
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
@@ -80,8 +78,25 @@ export default function App() {
   const [isPasswordReset, setIsPasswordReset] = useState(false)
   const [showAdmin, setShowAdmin] = useState(false)
   const [appReady, setAppReady] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
 
-  const isAdmin = user?.id === ADMIN_USER_ID
+  // Admin status is verified against the database, never assumed from the client.
+  // Deny by default: if the check errors (e.g. the is_admin() function isn't
+  // deployed yet) or hasn't resolved, isAdmin stays false.
+  useEffect(() => {
+    if (!user) { setIsAdmin(false); return }
+    let cancelled = false
+    supabase.rpc('is_admin').then(({ data, error }) => {
+      if (cancelled) return
+      if (error) {
+        console.warn('[admin-check] is_admin() check failed — denying admin access by default.', error.message)
+        setIsAdmin(false)
+        return
+      }
+      setIsAdmin(data === true)
+    })
+    return () => { cancelled = true }
+  }, [user])
 
   // Safety timeout — never hang forever on cold start
   // Forces app to show after 5 seconds no matter what

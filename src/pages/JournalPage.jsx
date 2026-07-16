@@ -16,6 +16,7 @@ export default function JournalPage() {
   const [loading, setLoading] = useState(true)
   const [newNote, setNewNote] = useState('')
   const [saving, setSaving] = useState(false)
+  const [deletingId, setDeletingId] = useState(null)
   const [toast, setToast] = useState('')
 
   useEffect(() => {
@@ -55,32 +56,41 @@ export default function JournalPage() {
 
   async function saveNote() {
     if (!newNote.trim()) { showToast('Write something first.'); return }
+    if (saving) return // prevent double submission
     setSaving(true)
+    const content = newNote
     try {
-      await supabase.from('notes').insert({
+      const { error } = await supabase.from('notes').insert({
         user_id: user.id,
-        content: newNote,
+        content,
         category: 'Personal',
         verse_ref: null,
         family_id: null
       })
-      setNewNote('')
+      if (error) throw error
+      setNewNote('') // only clear the draft once the save is confirmed
       showToast('Saved to your journal. ✓')
       loadNotes()
     } catch (err) {
-      showToast('Could not save. Try again.')
+      console.error('[journal:saveNote]', err?.message)
+      showToast("That didn't save. Your words are still here — try again.")
     }
     setSaving(false)
   }
 
   async function deleteNote(id) {
+    if (deletingId) return // prevent double submission
+    setDeletingId(id)
     try {
-      await supabase.from('notes').delete().eq('id', id)
+      const { error } = await supabase.from('notes').delete().eq('id', id)
+      if (error) throw error
       setNotes(prev => prev.filter(n => n.id !== id))
       showToast('Note deleted.')
     } catch (err) {
-      showToast('Could not delete.')
+      console.error('[journal:deleteNote]', err?.message)
+      showToast("Could not delete that note. It's still here — try again.")
     }
+    setDeletingId(null)
   }
 
   function showToast(msg) {
@@ -175,9 +185,10 @@ export default function JournalPage() {
                 </div>
                 <button
                   onClick={() => deleteNote(note.id)}
-                  style={{ background: 'none', border: 'none', color: 'var(--silver)', cursor: 'pointer', fontSize: '14px', opacity: 0.5, padding: 0 }}
+                  disabled={deletingId === note.id}
+                  style={{ background: 'none', border: 'none', color: 'var(--silver)', cursor: deletingId === note.id ? 'default' : 'pointer', fontSize: '14px', opacity: deletingId === note.id ? 0.25 : 0.5, padding: 0 }}
                 >
-                  ✕
+                  {deletingId === note.id ? '…' : '✕'}
                 </button>
               </div>
             </div>
