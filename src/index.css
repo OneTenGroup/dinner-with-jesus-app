@@ -397,6 +397,18 @@ textarea {
   gap: 10px;
 }
 
+.btn-ghost {
+  background: none;
+  border: none;
+  color: var(--gold);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  padding: 8px 0;
+}
+
 .auth-error {
   font-size: 14px;
   color: #E57373;

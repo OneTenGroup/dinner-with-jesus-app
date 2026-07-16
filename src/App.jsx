@@ -14,57 +14,7 @@ import SettingsPage from './pages/SettingsPage'
 import KendylScene, { hasSeenTodaysScene } from './components/KendylScene'
 import AdminPage from './pages/AdminPage'
 import GuestTablePage from './pages/GuestTablePage'
-
-function ResetPasswordScreen({ onDone }) {
-  const [password, setPassword] = useState('')
-  const [confirm, setConfirm] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-  const [success, setSuccess] = useState(false)
-
-  async function handleReset(e) {
-    e.preventDefault()
-    if (password !== confirm) { setError('Passwords do not match.'); return }
-    if (password.length < 6) { setError('Password must be at least 6 characters.'); return }
-    setLoading(true)
-    const { error } = await supabase.auth.updateUser({ password })
-    if (error) {
-      setError(error.message)
-    } else {
-      setSuccess(true)
-      setTimeout(() => onDone(), 2000)
-    }
-    setLoading(false)
-  }
-
-  return (
-    <div className="auth-wrap">
-      <div className="auth-logo">
-        <div className="cross" style={{ width: 24, height: 24 }}></div>
-        <h1 className="auth-title">Dinner with <span>Jesus</span></h1>
-      </div>
-      {success ? (
-        <>
-          <div style={{ fontSize: '2.5rem', marginBottom: '1rem' }}>✅</div>
-          <p style={{ fontFamily: 'Lora, serif', color: 'var(--white)', fontSize: '1.1rem' }}>Password updated!</p>
-          <p style={{ color: 'var(--silver)', fontSize: '13px', marginTop: '0.5rem' }}>Taking you to the app...</p>
-        </>
-      ) : (
-        <>
-          <p className="auth-sub">Set your new password.</p>
-          <form className="auth-form" onSubmit={handleReset}>
-            <input type="password" placeholder="New password" value={password} onChange={e => setPassword(e.target.value)} required minLength={6} />
-            <input type="password" placeholder="Confirm new password" value={confirm} onChange={e => setConfirm(e.target.value)} required minLength={6} />
-            {error && <div className="auth-error">{error}</div>}
-            <button type="submit" className="btn btn-gold" disabled={loading} style={{ marginTop: '4px' }}>
-              {loading ? '...' : 'Update password'}
-            </button>
-          </form>
-        </>
-      )}
-    </div>
-  )
-}
+import ResetPasswordPage from './pages/ResetPasswordPage'
 
 export default function App() {
   const { user, profile, loading } = useAuth()
@@ -75,7 +25,6 @@ export default function App() {
   const [onboardingDone, setOnboardingDone] = useState(false)
   const [showKendyl, setShowKendyl] = useState(false)
   const [kendylDismissed, setKendylDismissed] = useState(false)
-  const [isPasswordReset, setIsPasswordReset] = useState(false)
   const [showAdmin, setShowAdmin] = useState(false)
   const [appReady, setAppReady] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
@@ -114,24 +63,9 @@ export default function App() {
     }
   }, [loading, familyLoading])
 
-  useEffect(() => {
-    // supabase-js's own GoTrueClient parses (and then clears) the
-    // #access_token=...&type=recovery hash on init as part of
-    // detectSessionInUrl -- reading window.location.hash here directly
-    // raced against that and could lose depending on timing, silently
-    // dropping the user into the signed-in app with no reset form and no
-    // indication anything was pending. PASSWORD_RECOVERY is the event
-    // GoTrueClient itself emits once it has recognized the recovery link,
-    // so it can't miss the hash the SDK already consumed.
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'PASSWORD_RECOVERY') setIsPasswordReset(true)
-    })
-    return () => subscription.unsubscribe()
-  }, [])
-
   // Show KendylScene once app is ready and user is logged in
   useEffect(() => {
-    if (appReady && user && !isPasswordReset && !hasSeenTodaysScene() && !kendylDismissed) {
+    if (appReady && user && !hasSeenTodaysScene() && !kendylDismissed) {
       setShowKendyl(true)
     }
   }, [appReady, user])
@@ -158,13 +92,16 @@ export default function App() {
     return () => window.removeEventListener('dwj-go-to-settings', handleGoToSettings)
   }, [])
 
-  if (isPasswordReset) {
-    return (
-      <ResetPasswordScreen onDone={() => {
-        setIsPasswordReset(false)
-        window.history.replaceState(null, '', '/')
-      }} />
-    )
+  // Password-reset route — a dedicated path the branded reset email
+  // links to directly, checked from the raw URL before any auth-state
+  // logic runs at all. This is deliberately NOT derived from an async
+  // Supabase event/session check at the routing level (that was the
+  // previous, race-prone approach) -- arriving at this exact path only
+  // ever happens via a reset email, so the path itself is the routing
+  // signal. ResetPasswordPage handles the async recovery-session
+  // detection internally.
+  if (window.location.pathname.startsWith('/reset-password')) {
+    return <ResetPasswordPage />
   }
 
   // Guest table route — no auth required

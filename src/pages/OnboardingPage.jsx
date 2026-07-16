@@ -204,8 +204,11 @@ export default function OnboardingPage({ onComplete }) {
           <p style={{ fontSize: '14px', color: 'var(--silver)', lineHeight: 1.8, marginBottom: '1rem', fontStyle: 'italic' }}>
             One verse. One conversation. One prayer.
           </p>
-          <p style={{ fontSize: '13px', color: 'var(--silver2)', lineHeight: 1.8, marginBottom: '2rem' }}>
+          <p style={{ fontSize: '13px', color: 'var(--silver2)', lineHeight: 1.8, marginBottom: '1rem' }}>
             Dinner with Jesus was built to bring families back to the table — not just to eat, but to talk about what matters. It takes 15 minutes. It changes everything.
+          </p>
+          <p style={{ fontSize: '12px', color: 'var(--silver)', lineHeight: 1.8, marginBottom: '2rem', opacity: 0.75 }}>
+            Next: a few quick questions, then you'll create your own table or join one you've been invited to.
           </p>
           <button className="btn btn-gold" style={{ width: '100%' }} onClick={() => setStep(1)}>
             Let's get started 🙏
