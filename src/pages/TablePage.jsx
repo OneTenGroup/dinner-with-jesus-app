@@ -3,6 +3,26 @@ import { useAuth } from '../context/AuthContext'
 import { useFamily } from '../hooks/useFamily'
 import { supabase } from '../lib/supabase'
 import { track } from '../lib/analytics'
+import ChurchCTA from '../components/ChurchCTA'
+
+// Church/group CTA eligibility: local-only, no backend. Never shown
+// before a family's 3rd completed dinner, at most once every 14 days,
+// and never again once permanently dismissed.
+const CHURCH_CTA_COOLDOWN_MS = 14 * 24 * 60 * 60 * 1000
+const CHURCH_CTA_MIN_DINNERS = 3
+
+function isChurchCTAEligible() {
+  try {
+    if (localStorage.getItem('dwj_church_cta_dismissed_forever') === 'true') return false
+    const count = Number(localStorage.getItem('dwj_table_leaves_count') || '0') + 1
+    localStorage.setItem('dwj_table_leaves_count', String(count))
+    if (count < CHURCH_CTA_MIN_DINNERS) return false
+    const lastShown = Number(localStorage.getItem('dwj_church_cta_last_shown') || '0')
+    return Date.now() - lastShown > CHURCH_CTA_COOLDOWN_MS
+  } catch {
+    return false // localStorage unavailable (private browsing, etc.) -- never obstruct the exit path
+  }
+}
 
 const BLESSINGS = [
   "Go now — and carry what happened at this table into the rest of your night. I'll be here tomorrow. Same time. Same table. Don't be late. 🙏",
@@ -26,6 +46,7 @@ export default function TablePage({ onLeaveTable }) {
   const [toast, setToast] = useState('')
   const [showBlessing, setShowBlessing] = useState(false)
   const [blessing, setBlessing] = useState('')
+  const [showChurchCTA, setShowChurchCTA] = useState(false)
   const [showPrayerOverlay, setShowPrayerOverlay] = useState(false)
   // prayerOrder + prayerTurnsCompleted come from the shared group_verse
   // row (via get_or_create_tonight_session / complete_prayer_turn) --
@@ -235,6 +256,19 @@ export default function TablePage({ onLeaveTable }) {
   function confirmLeave() {
     track('table_left')
     setShowBlessing(false)
+    if (isChurchCTAEligible()) {
+      setShowChurchCTA(true)
+    } else if (onLeaveTable) {
+      onLeaveTable()
+    }
+  }
+
+  function dismissChurchCTA(forever) {
+    try {
+      localStorage.setItem('dwj_church_cta_last_shown', String(Date.now()))
+      if (forever) localStorage.setItem('dwj_church_cta_dismissed_forever', 'true')
+    } catch { /* ignore -- never block leaving the table over storage failures */ }
+    setShowChurchCTA(false)
     if (onLeaveTable) onLeaveTable()
   }
 
@@ -495,6 +529,14 @@ export default function TablePage({ onLeaveTable }) {
             Amen. Good night. 🙏
           </button>
         </div>
+      )}
+
+      {/* Church/group CTA — post-dinner only, rate-limited, dismissible forever */}
+      {showChurchCTA && (
+        <ChurchCTA
+          onMaybeLater={() => dismissChurchCTA(false)}
+          onDontShowAgain={() => dismissChurchCTA(true)}
+        />
       )}
 
       <div className={`toast ${toast ? 'show' : ''}`}>{toast}</div>
