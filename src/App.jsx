@@ -115,10 +115,18 @@ export default function App() {
   }, [loading, familyLoading])
 
   useEffect(() => {
-    const hash = window.location.hash
-    if (hash && hash.includes('type=recovery')) {
-      setIsPasswordReset(true)
-    }
+    // supabase-js's own GoTrueClient parses (and then clears) the
+    // #access_token=...&type=recovery hash on init as part of
+    // detectSessionInUrl -- reading window.location.hash here directly
+    // raced against that and could lose depending on timing, silently
+    // dropping the user into the signed-in app with no reset form and no
+    // indication anything was pending. PASSWORD_RECOVERY is the event
+    // GoTrueClient itself emits once it has recognized the recovery link,
+    // so it can't miss the hash the SDK already consumed.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') setIsPasswordReset(true)
+    })
+    return () => subscription.unsubscribe()
   }, [])
 
   // Show KendylScene once app is ready and user is logged in
