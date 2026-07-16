@@ -1,0 +1,30 @@
+feature,route_or_component,auth_required,data_source,status,launch_category,known_friction
+Landing page,public/landing.html,none,static,working,launch-critical,none noted
+Onboarding,src/pages/OnboardingPage.jsx,required,"onboarding, profiles, groups, get_or_create_tonight_session RPC",working,launch-critical,none noted
+Auth (signup/login/reset),src/pages/AuthPage.jsx + App.jsx ResetPasswordScreen,none,Supabase Auth,working,launch-critical,none noted
+Home - greeting,src/pages/HomePage.jsx (lines 7-25),required,local only,working,secondary,none noted
+Home - Tonight's Table,src/pages/HomePage.jsx (lines 337-355),required,"get_my_group_members RPC, get_or_create_tonight_session RPC",working,launch-critical,none noted
+Home - Verse for This Moment (manual entry),src/pages/HomePage.jsx (lines 357-408),required,bible_verses,working,secondary,none noted
+Home - Verse for This Moment (live clock),src/pages/HomePage.jsx (lines 190-208),required,bible_verses,dead code - built but never rendered,n/a,duplicate of PrayPage.jsx capability; not wired to UI
+Home - Need a Moment With God,src/pages/HomePage.jsx (lines 410-423),required,feeling_verses,working,secondary,none noted
+Home - conversations counter,src/App.jsx (lines 132-145),required,verse_history (per-user),working but mislabeled,secondary,copy implies family-wide count but counts only the viewing individual
+Home - Bible reader overlay,src/pages/BiblePage.jsx via HomePage.jsx line 292,required,bible_verses,working,secondary,none noted
+Table - full dinner flow,src/pages/TablePage.jsx,required,"get_or_create_tonight_session RPC, complete_prayer_turn RPC, verse_history, notes",working (repaired on fix/dwj-shared-table-sync; not yet deployed to production),launch-critical,none remaining post-repair
+Journal - personal,src/pages/JournalPage.jsx,required,notes (family_id is null),working,launch-critical,none noted
+Journal - family table,src/pages/JournalPage.jsx,required,notes (family_id = group.id),working (read/delete only; adds happen from Table),launch-critical,no author attribution shown on entries
+Settings - account,src/pages/SettingsPage.jsx,required,"profiles, Supabase Auth",working,launch-critical,none noted
+Settings - dinner circle management,src/pages/SettingsPage.jsx,required,"useFamily.js RPCs, groups.timezone",working,launch-critical,none noted
+Settings - Faith Journey,src/pages/SettingsPage.jsx (lines 522-539),required,profiles.faith_level,working but copy is stale,secondary,footnote claims it reorders table questions; TablePage.jsx renders fixed order regardless
+Settings - Bible Translation picker,src/pages/SettingsPage.jsx (lines 541-551),required,profiles.preferred_translation,decorative - written but read by nothing,secondary,4 of 5 listed translations have zero backing content and are commercially licensed
+Settings - Admin Dashboard entry,src/pages/SettingsPage.jsx,admin only,is_admin() RPC,working,administrative,none noted
+Settings - account deletion link,src/pages/SettingsPage.jsx (lines 604-608),required,links to public/delete-account.html,working,launch-critical (compliance),email-request only; up to 30-day turnaround; no self-service path
+Guest table,src/pages/GuestTablePage.jsx,none,get_guest_table_by_invite_code RPC,working (repaired on fix/dwj-shared-table-sync; not yet deployed to production),launch-critical,none remaining post-repair
+Story / Our Story / Maddie,src/pages/StoryPage.jsx,required,static content,working,launch-critical (mission),none noted
+Bible reader (full),src/pages/BiblePage.jsx,required,bible_verses,working,secondary,none noted
+Pray page,src/pages/PrayPage.jsx,required,"bible_verses, feeling_verses",fully built but completely unrouted,undecided,finished work sitting unreachable; more capable than Home's live time-verse lookup
+KendylScene daily message,src/components/KendylScene.jsx,required,hardcoded in-file (223 messages: 123 funny + 100 inspirational),working,launch-critical (mission/tone),none noted; supports ~223 days before repeat
+Admin dashboard,src/pages/AdminPage.jsx,admin only,"profiles, groups, dinner_verses, analytics, announcements",working,administrative,verses tab only toggles active/inactive; no content approval workflow
+Announcements,src/pages/AdminPage.jsx (write) + HomePage.jsx lines 294-300 (read),mixed,announcements,working,administrative,none noted
+Reminders / notifications,none,n/a,n/a,does not exist,not built,no reminder system anywhere in codebase despite nightly-ritual product premise
+Account deletion (self-service),none,n/a,n/a,does not exist,not built,current path is an email request handled manually, up to 30 days
+Church / organization entity,none,n/a,n/a,does not exist,not built,groups table is flat (one owner, one member list); no multi-family church grouping concept
