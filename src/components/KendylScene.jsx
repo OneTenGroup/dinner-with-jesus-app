@@ -229,20 +229,23 @@ const INSPIRATIONAL = [
   "Come back tomorrow. I've got something to say to you.",
 ]
 
-function getDayKey() {
-  const now = new Date()
-  return `dwj_seen_${now.getFullYear()}_${now.getMonth()}_${now.getDate()}`
-}
+// Session-level (not date-level): sessionStorage is scoped to the
+// current browsing context and is cleared when the app/tab is actually
+// closed, but survives in-app navigation, route changes, and reloads
+// within the same open session. That's exactly the "once per new
+// launch, not once per day, and not once per navigation" behavior this
+// needs -- no manual expiry/timestamp logic required.
+const SESSION_SEEN_KEY = 'dwj_seen_this_session'
 
-export function hasSeenTodaysScene() {
+export function hasSeenThisSession() {
   try {
-    return localStorage.getItem(getDayKey()) === 'true'
+    return sessionStorage.getItem(SESSION_SEEN_KEY) === 'true'
   } catch (e) { return false }
 }
 
-function markSeenToday() {
+function markSeenThisSession() {
   try {
-    localStorage.setItem(getDayKey(), 'true')
+    sessionStorage.setItem(SESSION_SEEN_KEY, 'true')
   } catch (e) {}
 }
 
@@ -311,7 +314,7 @@ export default function KendylScene({ onEnter }) {
   }
 
   function handleEnter() {
-    markSeenToday()
+    markSeenThisSession()
     setVisible(false)
     setTimeout(() => onEnter(), 400)
   }

@@ -11,7 +11,7 @@ import TablePage from './pages/TablePage'
 import StoryPage from './pages/StoryPage'
 import JournalPage from './pages/JournalPage'
 import SettingsPage from './pages/SettingsPage'
-import KendylScene, { hasSeenTodaysScene } from './components/KendylScene'
+import KendylScene, { hasSeenThisSession } from './components/KendylScene'
 import AdminPage from './pages/AdminPage'
 import GuestTablePage from './pages/GuestTablePage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
@@ -65,9 +65,14 @@ export default function App() {
     }
   }, [loading, familyLoading])
 
-  // Show KendylScene once app is ready and user is logged in
+  // Show KendylScene once app is ready and user is logged in -- once per
+  // app session (sessionStorage), not once per calendar day. Runs only
+  // on mount and when appReady/user actually change, and
+  // hasSeenThisSession()/kendylDismissed together mean a normal
+  // re-render (e.g. from unrelated state changes elsewhere in the app)
+  // can never re-trigger it within the same session.
   useEffect(() => {
-    if (appReady && user && !hasSeenTodaysScene() && !kendylDismissed) {
+    if (appReady && user && !hasSeenThisSession() && !kendylDismissed) {
       setShowKendyl(true)
     }
   }, [appReady, user])
@@ -142,10 +147,12 @@ export default function App() {
 
   // KendylScene is checked before onboarding so it's the true opening
   // moment for a brand-new user too -- not just something returning
-  // users see later. hasSeenTodaysScene() is false for anyone who's
-  // never seen it, so a first-time user gets it right here, then flows
-  // into onboarding once they dismiss it. Returning users (onboarding
-  // already complete) see the same daily-scene behavior as before.
+  // users see later. hasSeenThisSession() is false at the start of every
+  // new app session, so a first-time user gets it right here, then flows
+  // into onboarding once they dismiss it; a returning user flows into
+  // Home the same way. Dismissing marks the session (not the day) seen,
+  // so it won't reappear from in-app navigation or re-renders, but will
+  // show again the next time the app is actually closed and reopened.
   if (showKendyl) {
     return (
       <KendylScene onEnter={() => {
