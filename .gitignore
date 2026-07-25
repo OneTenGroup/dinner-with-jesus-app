@@ -6,3 +6,19 @@ dist/
 *.local
 .DS_Store
 supabase/.temp/
+
+# Android TWA (android-twa/) -- build outputs, machine-local SDK path, and
+# any signing material that should NEVER live inside this repo. The real
+# upload keystore/passwords/PEM are stored outside the repo entirely (see
+# docs/DWJ_ANDROID_TWA_RELEASE_PROCESS.md) -- these patterns are defense
+# in depth in case one is ever placed here by mistake.
+android-twa/build/
+android-twa/app/build/
+android-twa/.gradle/
+android-twa/local.properties
+*.jks
+*.keystore
+*.pem
+*keystore*.properties
+signing.properties
+CREDENTIALS-DO-NOT-COMMIT*
