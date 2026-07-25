@@ -38,6 +38,22 @@ function getAllTimezones() {
   return FALLBACK_TIMEZONES
 }
 
+// Validates a typed/pasted timezone against the ACTUAL supported list
+// (not just "looks like a zone name") before anything is ever sent to
+// the database -- case-insensitive match, normalized to the list's own
+// canonical casing so what's stored always matches what Intl and
+// Postgres both resolve identically. Returns null for anything not a
+// real match, including friendly-but-non-IANA text like "Eastern Time"
+// or "GMT+5".
+function resolveTimezoneInput(input, allTimezones) {
+  const trimmed = (input || '').trim()
+  if (!trimmed) return null
+  const exact = allTimezones.find(tz => tz === trimmed)
+  if (exact) return exact
+  const lower = trimmed.toLowerCase()
+  return allTimezones.find(tz => tz.toLowerCase() === lower) || null
+}
+
 function detectDeviceTimezone() {
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone
@@ -90,6 +106,7 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
   const [transferTarget, setTransferTarget] = useState('')
   const [transferring, setTransferring] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleteConfirmText, setDeleteConfirmText] = useState('')
   const [deletingTable, setDeletingTable] = useState(false)
 
   // Populated once; Intl.supportedValuesOf('timeZone') returns ~400+
@@ -143,27 +160,37 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
   }
 
   async function handleChangeTimezone(tz) {
-    const trimmed = (tz || '').trim()
-    if (!group?.id || !group.isOwner || !trimmed || trimmed === group.timezone) return
+    if (!group?.id || !group.isOwner) return
+    // Validated against the ACTUAL supported IANA list before this
+    // call ever reaches the network -- rejects friendly-but-non-IANA
+    // text ("Eastern Time", "GMT+5") and typos with a clear message,
+    // rather than relying solely on the database's own
+    // groups_timezone_valid check constraint to catch it after the
+    // fact. That constraint still exists and still enforces this
+    // server-side regardless -- this is an additional, earlier gate,
+    // not a replacement for it.
+    const resolved = resolveTimezoneInput(tz, allTimezones)
+    if (!resolved) {
+      showToast('Not a recognized timezone. Choose one from the suggestions, or use "my device\'s timezone."')
+      return
+    }
+    if (resolved === group.timezone) return
     setSavingTimezone(true)
     try {
       // groups_update_owner RLS policy already permits this (owner-only
-      // update on their own group). The database's own
-      // groups_timezone_valid check constraint validates tz server-side
-      // regardless of what this picker (or a manually typed value)
-      // offers -- this call cannot store an unvalidated zone name even
-      // if the client were compromised. DST is handled entirely by
+      // update on their own group). DST is handled entirely by
       // Postgres resolving this IANA name at query time (see
       // canonical_dinner_date()), never by a stored offset here, so
       // switching zones is inherently DST-safe with no extra logic
       // needed on this end.
-      const { error } = await supabase.from('groups').update({ timezone: trimmed }).eq('id', group.id)
+      const { error } = await supabase.from('groups').update({ timezone: resolved }).eq('id', group.id)
       if (error) throw error
+      setTzInput(resolved)
       await reloadFamily()
       showToast('Table timezone updated. Future dinners will use it. ✓')
     } catch (err) {
       console.error('[settings:handleChangeTimezone]', err?.message)
-      showToast('Not a recognized timezone. Pick one from the list or try again.')
+      showToast('Could not update timezone. Try again.')
     }
     setSavingTimezone(false)
   }
@@ -237,12 +264,14 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
   }
 
   async function handleDeleteGroup() {
+    if (deleteConfirmText !== group?.name) return
     setDeletingTable(true)
     const result = await deleteGroup()
     if (result.error) {
       showToast(result.error)
     } else {
       setShowDeleteConfirm(false)
+      setDeleteConfirmText('')
       showToast('The table has been deleted.')
     }
     setDeletingTable(false)
@@ -518,11 +547,19 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
               <datalist id="dwj-timezone-options">
                 {allTimezones.map(tz => <option key={tz} value={tz} />)}
               </datalist>
+              {tzInput.trim() && (() => {
+                const resolved = resolveTimezoneInput(tzInput, allTimezones)
+                return (
+                  <p style={{ fontSize: '11px', marginBottom: 8, color: resolved ? 'var(--gold)' : '#E57373' }}>
+                    {resolved ? `✓ Recognized — ${resolved}` : '✕ Not a recognized IANA timezone. Pick a suggestion or use "my device\'s timezone."'}
+                  </p>
+                )
+              })()}
               <button
                 className="btn btn-gold"
                 style={{ width: '100%', fontSize: '13px' }}
                 onClick={() => handleChangeTimezone(tzInput)}
-                disabled={savingTimezone || !tzInput.trim() || tzInput.trim() === group.timezone}
+                disabled={savingTimezone || !resolveTimezoneInput(tzInput, allTimezones) || resolveTimezoneInput(tzInput, allTimezones) === group.timezone}
               >
                 {savingTimezone ? 'Saving...' : 'Save timezone'}
               </button>
@@ -600,12 +637,27 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
               </button>
             ) : (
               <div style={{ textAlign: 'center', marginTop: '0.5rem' }}>
-                <p style={{ fontSize: '13px', color: 'var(--silver)', marginBottom: '0.75rem' }}>
-                  Delete {group.name}? This can't be undone from here — you'll need a fresh table if you want to start again.
+                <p style={{ fontSize: '13px', color: 'var(--silver)', marginBottom: '0.5rem' }}>
+                  This removes {group.name} from your account and your account only — your sign-in, your personal journal, and your own history are never touched or deleted.
                 </p>
+                <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.75rem', fontStyle: 'italic' }}>
+                  Type <strong style={{ color: 'var(--cream)' }}>{group.name}</strong> to confirm.
+                </p>
+                <input
+                  type="text"
+                  value={deleteConfirmText}
+                  onChange={e => setDeleteConfirmText(e.target.value)}
+                  placeholder={group.name}
+                  style={{ marginBottom: 8, textAlign: 'center' }}
+                />
                 <div className="btn-row">
-                  <button className="btn" onClick={() => setShowDeleteConfirm(false)} style={{ flex: 1 }}>Cancel</button>
-                  <button className="btn" onClick={handleDeleteGroup} disabled={deletingTable} style={{ flex: 1, color: '#E57373', borderColor: 'rgba(229,115,115,0.2)' }}>
+                  <button className="btn" onClick={() => { setShowDeleteConfirm(false); setDeleteConfirmText('') }} style={{ flex: 1 }}>Cancel</button>
+                  <button
+                    className="btn"
+                    onClick={handleDeleteGroup}
+                    disabled={deletingTable || deleteConfirmText !== group.name}
+                    style={{ flex: 1, color: '#E57373', borderColor: 'rgba(229,115,115,0.2)' }}
+                  >
                     {deletingTable ? 'Deleting...' : 'Yes, delete'}
                   </button>
                 </div>
