@@ -81,12 +81,26 @@ This means Digital Asset Links verification for the TWA is not currently working
 
 ## 7. Build command
 
-Once (and only once) Google Play has confirmed the new upload certificate is accepted:
+**Known issue with this specific setup: `bubblewrap build`'s own Gradle invocation fails on this machine** (`'gradlew.bat' is not recognized as an internal or external command` — `GradleWrapper` is constructed without an explicit `projectLocation` in this Bubblewrap CLI version, so it doesn't resolve the wrapper script's path correctly here). Until that's root-caused, build and sign in two manual steps instead, which is exactly what `bubblewrap build` does internally:
+
 ```
 cd C:\Projects\dinner-with-jesus-app\android-twa
-bubblewrap build
+.\gradlew.bat bundleRelease --no-daemon
 ```
-This signs with the keystore/alias referenced in `twa-manifest.json`, prompting for the store/key passwords (retrieve from wherever Steve has stored them per §5 — never re-typed into a script or chat). Output AAB lands in `android-twa/app/release/app-release.aab` by default; copy the final artifact into a clearly labeled release folder, e.g. `android-twa/release/app-release-v2.aab`.
+This produces an **unsigned** bundle at `app\build\outputs\bundle\release\app-release.aab`. Then sign it:
+```
+jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 ^
+  -keystore C:\Android\dwj-release-keys\dwj-upload-key.jks ^
+  app\build\outputs\bundle\release\app-release.aab ^
+  dwj-upload ^
+  -storepass <the store password> -keypass <the SAME store password> ^
+  -signedjar release\app-release-v2.aab
+```
+**Important, learned the hard way:** this keystore is PKCS12 format (`keytool`'s modern default even though the file is named `.jks`) — PKCS12 does not support a key password distinct from the store password. Use the store password for **both** `-storepass` and `-keypass`; the separately-generated "key password" recorded alongside it is not functionally used and using it will fail with `jarsigner: key associated with dwj-upload not a private key`.
+
+Retrieve the store password from wherever Steve has stored it per §5 — never re-type it into a committed script or chat.
+
+If `bubblewrap build`'s Gradle wrapper issue gets fixed in a future CLI version, the single-command form (`bubblewrap build`, using the `BUBBLEWRAP_KEYSTORE_PASSWORD`/`BUBBLEWRAP_KEY_PASSWORD` env vars — both set to the store password, per the note above — to avoid its interactive password prompt) does the same two steps for you.
 
 A **debug/unsigned** sanity build (safe to run anytime, proves the project compiles, never touches signing or Play Store) is:
 ```

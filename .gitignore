@@ -16,6 +16,9 @@ android-twa/build/
 android-twa/app/build/
 android-twa/.gradle/
 android-twa/local.properties
+android-twa/release/
+*.aab
+*.apk
 *.jks
 *.keystore
 *.pem
