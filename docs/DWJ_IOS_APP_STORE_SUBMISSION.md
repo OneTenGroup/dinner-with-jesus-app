@@ -3,7 +3,7 @@
 **Date:** 2026-07-26
 **Status:** Pre-enrollment preparation. No Apple Developer Program account exists yet. Nothing has been uploaded to App Store Connect, no paid service has been purchased, no production behavior has changed without explicit prior approval (see each section for what's committed vs. merely prepared).
 
-**Architecture decision (made autonomously, documented here):** the iOS app is a Capacitor shell that loads the live production site (`https://flippingtables.ai`) via `server.url` in `capacitor.config.json`, the same architecture as the already-approved Android TWA, rather than bundling a static snapshot of the web build. Reasoning: this app is a live, frequently-updated, Supabase-backed experience (auth, real-time-ish shared state, rapid bug-fix cadence all through this engagement) — a bundled static copy would drift from production and require an App Store resubmission for every web fix, exactly the operational cost this architecture avoids on Android today. The tradeoff is Apple Guideline 4.2 scrutiny of "repackaged website" apps — addressed below in the App Review audit, not avoided.
+**Architecture correction (2026-07-26):** the first draft of this document used Capacitor's `server.url` to point the iOS app at the live remote site, mirroring the Android TWA. That was wrong for iOS — Capacitor's own documentation describes `server.url` as a live-reload development tool, not a production distribution mechanism, and it invites exactly the Guideline 4.2 "repackaged website" scrutiny this document originally tried to argue around. **Corrected: the shipped iOS app now bundles the Vite production build directly** (`webDir: "dist"`, no `server` block in `capacitor.config.json`) via the standard `npx cap sync ios` workflow. The app launches its own bundled `index.html`/JS/CSS from local storage, exactly like any other Capacitor app — it does not fetch its interface from the network on launch. **Supabase and all other remote calls are unaffected**: `src/lib/supabase.js` already talks to `https://mvswwnonafjencqumxvv.supabase.co` via an absolute URL, entirely independent of where the HTML/JS/CSS shell itself was loaded from — auth, database, and RPC calls work identically whether the shell is bundled or remote. A separate, clearly-labeled `capacitor.config.dev.json` retains `server.url` for local live-reload development only; it is never used for a CI, TestFlight, or App Store build.
 
 ---
 
@@ -17,7 +17,8 @@
 | App icon | 1024×1024, generated from the existing 512px source (see risk note below) | `ios/App/App/Assets.xcassets/AppIcon.appiconset/` |
 | Launch screen | Brand-colored (#0D1829) splash matching the web app's own loading screen, background-color-corrected storyboard (was defaulting to white) | `ios/App/App/Assets.xcassets/Splash.imageset/`, `ios/App/App/Base.lproj/LaunchScreen.storyboard` |
 | Info.plist | Portrait-only (iPhone + iPad), status bar style set app-wide, **no** camera/location/microphone/photo-library usage-description keys (none are used anywhere in the app — confirmed by source review) | `ios/App/App/Info.plist` |
-| Native bridge | Splash-screen handoff synced to the app's existing `appReady` state, status bar style, and external-link interception (opens non-`flippingtables.ai` links, and `mailto:`, via in-app Safari instead of hijacking the single webview) — a no-op on web/Android, `Capacitor.isNativePlatform()`-gated | `src/lib/nativeBridge.js`, wired into `src/App.jsx` |
+| Native bridge | Splash-screen handoff, status bar style, external-link interception, **plus** `getAuthRedirectOrigin()` (fixes auth email links under bundling) and `appUrlOpen` handling for Universal Links (§1a) — all `Capacitor.isNativePlatform()`-gated, no-op on web/Android | `src/lib/nativeBridge.js`, wired into `src/App.jsx`, `src/context/AuthContext.jsx`, `src/pages/AuthPage.jsx` |
+| Config split | `capacitor.config.json` (production, bundled, no `server` block) vs. `capacitor.config.dev.json` (dev-only live-reload, never used for a real build) | `capacitor.config.json`, `capacitor.config.dev.json` |
 | Safe areas | `viewport-fit=cover` added to the shared `index.html` (harmless on web/Android); `.app-shell` gets `padding-top: env(safe-area-inset-top)` to match the bottom nav's pre-existing `env(safe-area-inset-bottom)` | `index.html`, `src/index.css` |
 | Universal Links (prep only) | `apple-app-site-association` with a placeholder Team ID, deployed with correct routing/content-type — **inert until the real Team ID is filled in post-enrollment** | `public/.well-known/apple-app-site-association`, `vercel.json` |
 | **Account deletion (the biggest fix)** | New self-service `delete_own_account()` RPC + in-app typed-confirmation UI in Settings, replacing the email-only flow as the primary path (email kept as a documented fallback) | `supabase/migrations/20260726000001_self_service_account_deletion.sql` (NOT applied to production), `src/context/AuthContext.jsx`, `src/pages/SettingsPage.jsx` |
@@ -25,6 +26,45 @@
 All of the above is committed to `main` on `dinner-with-jesus-app` **except** the account-deletion migration, which is written and reviewed but deliberately left unapplied, exactly like every other database change in this engagement's established pattern — it needs the same "apply and verify against production" step the Android ownership-protection work went through, and that's a production-data action, not a pre-enrollment-prep one.
 
 ---
+
+## 1a. Verification under the bundled architecture
+
+Reasoned through against the actual code (not assumed), since this environment has no way to run the iOS app on a device or simulator. Each item below should still get a real pass during the BrowserStack App Live test in §11.
+
+| Flow | Under bundling, expected to... | Why |
+|---|---|---|
+| Signup / login | Work identically | Supabase Auth calls are absolute-URL network requests, unaffected by shell origin |
+| Session persistence | Work identically within the app | supabase-js persists to the webview's own localStorage; that storage is private to the app (not shared with mobile Safari) but persists across app relaunches the same as any native app's local storage |
+| Password reset | **Fixed, was broken by the bundled switch** — see below | |
+| `/app` routing | Unaffected | `/app` is a *web-server* route alias (`vercel.json`); the bundled app's own `index.html` is its own root document and never needs that alias |
+| Universal Links | **Now wired**, inert until Team ID exists | See below |
+| External links | Unaffected | Already handled by `nativeBridge.js`'s `Browser.open()` interception, independent of shell origin |
+| Dinner flow / journaling | Unaffected | All read/write calls go straight to Supabase via absolute URLs |
+| Account deletion | Unaffected by bundling; separately tested — see §2a | |
+
+**Password reset / signup confirmation — real bug found and fixed:** Supabase's `emailRedirectTo`/`redirectTo` previously used `window.location.origin`. Under `server.url`, that was the real website's origin, so it worked by accident. Under bundling, the webview's own origin is a non-http Capacitor scheme — a confirmation/reset email would have linked to something no mail client can open. Fixed by adding `getAuthRedirectOrigin()` (`src/lib/nativeBridge.js`): returns the real production origin (`https://flippingtables.ai`) when running in the native app, and `window.location.origin` everywhere else (web/Android — zero behavior change there, confirmed by the `Capacitor.isNativePlatform()` gate). `AuthContext.jsx` (signup) and `AuthPage.jsx` (password reset) both updated to use it.
+
+**Universal Links — now actually wired to in-app navigation:** under the old remote-URL design, a tapped link could just reload the (remote) page at that path and it would work. Under bundling, the app never fetches pages over the network, so a Universal Link needs to be translated into in-app navigation instead. Added an `appUrlOpen` listener (`src/App.jsx`) that takes the incoming URL, updates `window.location` via `history.pushState` (so `ResetPasswordPage`'s own token/hash parsing keeps working unchanged), and forces a re-render so the app's existing path-based routing picks it up. Still inert end-to-end until the real Team ID replaces the placeholder in `apple-app-site-association` — the code path is ready, there's just nothing to trigger it yet.
+
+**Not independently verified, flagged for the BrowserStack pass:** the service worker (`sw.js`) registration is unchanged from the web build and now runs inside a bundled native webview for the first time — this combination isn't something I could find a strong reason to doubt, but I also have no way to confirm it here. Worth a specific look during the first real-device test rather than assumed fine.
+
+## 2a. Account deletion — tested against disposable production accounts, migration NOT applied
+
+Per your instruction, the real migration (`20260726000001_self_service_account_deletion.sql`) was never applied to production. Instead, its exact function body was applied under a temporary name (`_test_delete_own_account`, taking a target user id directly rather than reading it from a session), exercised against four fresh disposable accounts created through the real signup endpoint, then **dropped** — production now has zero trace of either the test function or the test accounts/data (verified by count).
+
+**A real bug was found and fixed during this test, before you ever saw it:** the first version archived a sole owner's table (as designed) but then deleted their `auth.users` row in the same call — and `groups.owner_id` still pointed at that user. `groups.owner_id references auth.users(id) ON DELETE CASCADE` fired, silently deleting the "archived" group and its entire dinner-session history the instant the account was removed, completely undoing the archive. Fixed by also clearing `owner_id` to `NULL` (nullable, confirmed) as part of the same archive statement — re-tested clean afterward. `delete_group()` (the existing Settings-page flow) never had this bug, since it never deletes the caller's own account in the same call.
+
+**Final, verified results, exactly what is deleted vs. retained:**
+
+| Scenario | Auth account | Profile | Own notes (personal + family-journal) | Verse history | Group membership | Owned group | Other members' data |
+|---|---|---|---|---|---|---|---|
+| Plain member deletes | Deleted | Deleted (cascade) | Deleted (cascade) | Deleted (cascade) | Cleared | N/A | **Untouched** — confirmed empirically |
+| Owner of a multi-member group deletes | Deleted | Deleted | Deleted | Deleted | Cleared | **Ownership auto-transfers** to the next-longest-tenured member; group and its dinner-session history (`group_verse`) untouched | **Untouched** — confirmed empirically |
+| Sole owner deletes | Deleted | Deleted | Deleted (including their own family-journal note — see note below) | Deleted | Cleared | **Archived** (`archived_at` set, `invite_code` rotated, `owner_id` cleared to `NULL`) — dinner-session history (`group_verse`) preserved, group row itself preserved | N/A (no other members) |
+
+**One nuance worth knowing, not a bug:** `notes.user_id` cascades on *who wrote it*, not which journal they posted it to — a note the deleted user wrote to a *shared* family journal is removed along with their personal ones, while every other member's notes in that same journal are left completely untouched (confirmed empirically in every scenario above). This exactly matches what the pre-existing `public/delete-account.html` policy text already promises ("your journal entries and reflections" are listed as deleted) — not a new behavior introduced here.
+
+**Still pending your approval before this applies to production:** the actual `20260726000001_self_service_account_deletion.sql` migration, now containing this fix, has not been run against production. Apply it the same way every other migration in this engagement has been — review, apply, then have Steve confirm the Settings-page UI flow end-to-end on a real account.
 
 ## 2. App Review audit — risks found and resolved
 
@@ -58,9 +98,17 @@ Email/password only via Supabase Auth. Guideline 4.8 (Sign in with Apple parity 
 
 ---
 
-## 4. Age rating recommendation
+## 4. Age rating — provisional recommendation, not a filled-out questionnaire
 
-**4+.** No violence, no mature/suggestive content, no gambling, no user-to-user chat beyond a closed family journal, no unrestricted web access (the app only ever loads `flippingtables.ai`/Supabase). The "feelings" picker in the Pray page (fear, anger, sadness, anxiety, etc.) is emotional/spiritual self-reflection content, not the kind of content Apple's questionnaire flags (that targets horror/fear *themes as entertainment content*, not a wellness/devotional check-in feature) — answer "None" on the relevant mature/suggestive-themes questions.
+**Provisional: 4+.** This is a recommendation based on reading the actual content and features, not a completed pass through Apple's real questionnaire — App Store Connect's age-rating flow (Apple replaced the old fixed-category system with a graduated questions-and-severity model) is only reachable from inside App Store Connect, which doesn't exist until enrollment. Treat every answer below as "what I'd honestly answer given what this app actually contains," to be re-verified against the live questionnaire's exact current wording at submission time, not copy-pasted blind.
+
+Honest answers based on DWJ's actual, closed, invite-only content:
+- **Violence, sexual content, profanity, gambling, alcohol/drugs, mature/suggestive themes:** None present anywhere in the app — answer "None" throughout.
+- **Horror/fear themes:** None. The Pray page's "feelings" picker (fear, anger, sadness, anxiety, etc.) is a self-reflection/devotional check-in, not depicted fear content or horror theming — this is a real distinction Apple's questionnaire draws (it asks about *content depicting* these themes, not wellness features that name emotions) but worth a second look at the exact current question text before answering.
+- **User-generated content / user-to-user communication:** The family journal is UGC visible to other users, but strictly within a closed, invite-code-gated group the user explicitly joined — not open chat with strangers, not public posting. Answer honestly per the questionnaire's exact phrasing on unrestricted web access and user-generated content; this app has no open/public UGC surface and no unrestricted in-app browser.
+- **Gambling/contests, medical/treatment information:** None.
+
+Expected outcome: 4+. Not guaranteed until someone actually completes the live questionnaire post-enrollment.
 
 ## 5. Privacy nutrition label recommendation
 

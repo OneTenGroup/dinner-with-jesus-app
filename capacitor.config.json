@@ -3,15 +3,6 @@
   "appName": "Dinner with Jesus",
   "webDir": "dist",
   "backgroundColor": "#0D1829",
-  "server": {
-    "url": "https://flippingtables.ai",
-    "cleartext": false,
-    "allowNavigation": [
-      "flippingtables.ai",
-      "www.flippingtables.ai",
-      "*.supabase.co"
-    ]
-  },
   "ios": {
     "contentInset": "never",
     "backgroundColor": "#0D1829",

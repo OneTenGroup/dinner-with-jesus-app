@@ -35,6 +35,14 @@
 --    CASCADE from profiles), and verse_history (ON DELETE CASCADE from
 --    auth.users) are removed automatically by their existing foreign
 --    keys -- no separate delete statements needed or written here.
+--    notes.user_id's cascade is keyed on WHO WROTE the note, not which
+--    journal it was posted to -- a note the deleted user wrote to a
+--    shared FAMILY journal is removed along with their personal notes,
+--    same as it always would have been under the pre-existing
+--    public/delete-account.html policy text ("your journal entries and
+--    reflections" are listed as deleted there too). Confirmed by
+--    disposable-account testing: other members' notes in the same
+--    family journal are never touched, only the deleted user's own.
 --
 -- SECURITY DEFINER is required here specifically because ordinary
 -- authenticated roles have no grant to write to auth.users at all --
@@ -90,12 +98,27 @@ begin
         -- Sole owner: archive the table (same mechanism as delete_group()
         -- in 20260725000001_group_ownership_protection.sql) so history is
         -- preserved and the old invite code can never be reused.
+        --
+        -- owner_id is ALSO cleared here (delete_group() never does this,
+        -- since that flow never deletes the caller's own auth.users row).
+        -- This function does delete auth.users below, in the SAME call --
+        -- groups.owner_id references auth.users(id) ON DELETE CASCADE, so
+        -- leaving owner_id pointing at the very account about to be
+        -- deleted would cascade-delete this "archived" row (and, via
+        -- group_verse.group_id ON DELETE CASCADE, its entire dinner
+        -- history) the instant the delete below runs -- silently undoing
+        -- the archive and destroying exactly what it exists to preserve.
+        -- Confirmed by disposable-account testing before this migration
+        -- was ever applied to any database: the pre-fix version passed
+        -- every other assertion but left the archived solo-owner test
+        -- group (and its group_verse/notes) completely deleted, not
+        -- archived. owner_id is nullable (confirmed), so this is safe.
         for i in 1..6 loop
           v_new_code := v_new_code || substr(v_chars, 1 + floor(random() * length(v_chars))::int, 1);
         end loop;
 
         update public.groups
-        set archived_at = now(), invite_code = v_new_code
+        set archived_at = now(), invite_code = v_new_code, owner_id = null
         where id = v_group_id and archived_at is null;
       end if;
     end if;

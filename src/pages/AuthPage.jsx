@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import { getAuthRedirectOrigin } from '../lib/nativeBridge'
 
 export default function AuthPage() {
   const { signIn, signUp } = useAuth()
@@ -43,7 +44,7 @@ export default function AuthPage() {
     // password" form -- not the sign-in screen, not Settings, no
     // hunting required.
     const { error } = await supabase.auth.resetPasswordForEmail(resetEmail, {
-      redirectTo: `${window.location.origin}/reset-password`
+      redirectTo: `${getAuthRedirectOrigin()}/reset-password`
     })
     if (error) {
       setError(error.message)

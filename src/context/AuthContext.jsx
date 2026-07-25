@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { getAuthRedirectOrigin } from '../lib/nativeBridge'
 
 const AuthContext = createContext({})
 
@@ -36,13 +37,16 @@ export function AuthProvider({ children }) {
   async function signUp(email, password, name) {
     // emailRedirectTo must be explicit -- without it, Supabase falls back to
     // the project's dashboard-configured default Site URL, which may be
-    // stale or unset. window.location.origin always matches whatever
-    // origin actually served this signup (prod, preview, or local dev),
-    // same pattern as the invite link in TablePage.jsx.
+    // stale or unset. getAuthRedirectOrigin() returns window.location.origin
+    // on web/Android (unchanged behavior, matches whatever origin actually
+    // served this signup), but returns the real production web origin when
+    // running inside the bundled native iOS app -- that webview's own origin
+    // is a non-http scheme, which would produce an unopenable link inside
+    // the confirmation email. See src/lib/nativeBridge.js.
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { name }, emailRedirectTo: window.location.origin }
+      options: { data: { name }, emailRedirectTo: getAuthRedirectOrigin() }
     })
     return { data, error }
   }
