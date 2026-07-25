@@ -16,7 +16,7 @@ import AdminPage from './pages/AdminPage'
 import GuestTablePage from './pages/GuestTablePage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
 import { setUpdateBusy, registerUpdateNotifyHandler, applyUpdateNow } from './lib/appUpdate'
-import { hideSplashScreen, configureStatusBar, installExternalLinkHandler } from './lib/nativeBridge'
+import { hideSplashScreen, configureStatusBar, installExternalLinkHandler, isNativeIOSApp } from './lib/nativeBridge'
 
 export default function App() {
   const { user, profile, loading } = useAuth()
@@ -31,6 +31,7 @@ export default function App() {
   const [appReady, setAppReady] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
   const [updateReady, setUpdateReady] = useState(false)
+  const [deepLinkTick, setDeepLinkTick] = useState(0)
 
   // Admin status is verified against the database, never assumed from the client.
   // Deny by default: if the check errors (e.g. the is_admin() function isn't
@@ -128,6 +129,29 @@ export default function App() {
     registerUpdateNotifyHandler(() => setUpdateReady(true))
   }, [])
 
+  // Universal Links land as a native "appUrlOpen" event, not a browser
+  // navigation, since the bundled app's own webview never actually
+  // requests https://flippingtables.ai/... over the network (see
+  // docs/DWJ_IOS_APP_STORE_SUBMISSION.md's bundled-architecture note).
+  // pushState updates the real window.location (so ResetPasswordPage's
+  // own hash/query parsing still works unchanged) and deepLinkTick just
+  // forces this component to re-render and re-check the pathname below
+  // -- window.location.pathname itself is not React state.
+  useEffect(() => {
+    if (!isNativeIOSApp()) return
+    let handle
+    import('@capacitor/app').then(({ App: CapacitorApp }) => {
+      CapacitorApp.addListener('appUrlOpen', (data) => {
+        try {
+          const incoming = new URL(data.url)
+          window.history.pushState({}, '', incoming.pathname + incoming.search + incoming.hash)
+          setDeepLinkTick((n) => n + 1)
+        } catch (err) {}
+      }).then((h) => { handle = h })
+    })
+    return () => { handle && handle.remove() }
+  }, [])
+
   // Password-reset route — a dedicated path the branded reset email
   // links to directly, checked from the raw URL before any auth-state
   // logic runs at all. This is deliberately NOT derived from an async
@@ -135,13 +159,14 @@ export default function App() {
   // previous, race-prone approach) -- arriving at this exact path only
   // ever happens via a reset email, so the path itself is the routing
   // signal. ResetPasswordPage handles the async recovery-session
-  // detection internally.
-  if (window.location.pathname.startsWith('/reset-password')) {
+  // detection internally. deepLinkTick is read (not just set) so this
+  // check re-runs after a Universal Link arrives mid-session.
+  if (deepLinkTick >= 0 && window.location.pathname.startsWith('/reset-password')) {
     return <ResetPasswordPage />
   }
 
   // Guest table route — no auth required
-  if (window.location.pathname.startsWith('/table/')) {
+  if (deepLinkTick >= 0 && window.location.pathname.startsWith('/table/')) {
     return (
       <Routes>
         <Route path="/table/:inviteCode" element={<GuestTablePage />} />

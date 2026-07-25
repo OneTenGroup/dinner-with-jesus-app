@@ -1,0 +1,15 @@
+{
+  "_comment": "DEV/LIVE-RELOAD ONLY. Never used for the shipped App Store build or any CI/TestFlight build -- Capacitor's own docs describe server.url as a live-reload development tool, not a production distribution mechanism. To use: copy this over capacitor.config.json locally (or pass --config to the Capacitor CLI) while iterating against a local `npm run dev` server, then restore the real capacitor.config.json before committing or building for release. The production config (capacitor.config.json) has no server block and loads the bundled webDir build instead.",
+  "appId": "ai.flippingtables.app",
+  "appName": "Dinner with Jesus (dev)",
+  "webDir": "dist",
+  "backgroundColor": "#0D1829",
+  "server": {
+    "url": "http://localhost:5173",
+    "cleartext": true
+  },
+  "ios": {
+    "contentInset": "never",
+    "backgroundColor": "#0D1829"
+  }
+}

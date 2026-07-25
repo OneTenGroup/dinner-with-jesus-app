@@ -6,7 +6,35 @@
 // capacitor.config.json / ios/), imported dynamically so a plain web
 // build never needs to load them.
 
+// The production web origin. Used in place of window.location.origin
+// specifically for Supabase auth redirect URLs (email confirmation,
+// password reset) when running inside the bundled native app -- the
+// bundled webview's own origin is a non-http scheme (e.g.
+// capacitor://localhost), and a confirmation/reset email containing a
+// link to that scheme would not be a real, openable link from any mail
+// client. Hardcoding the real origin here means those emails always
+// link to the actual website (opens in Safari, or reopens this app via
+// Universal Links once the real Team ID is configured -- see
+// docs/DWJ_IOS_APP_STORE_SUBMISSION.md). On web and the Android TWA,
+// Capacitor.isNativePlatform() is false, so this always falls through
+// to the existing window.location.origin behavior -- zero change there.
+const PRODUCTION_WEB_ORIGIN = 'https://flippingtables.ai'
+
 let capacitorAvailable = null
+
+export function isNativeIOSApp() {
+  return typeof window !== 'undefined' && !!window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()
+}
+
+// Synchronous by design (auth calls need this value immediately, not
+// after an async dynamic import resolves) -- relies on window.Capacitor
+// already being present by the time React mounts, which Capacitor
+// guarantees for a native-bundled app (it's injected before the page's
+// own scripts run), unlike the other helpers in this file which lazily
+// import @capacitor/core for tree-shaking on plain web builds.
+export function getAuthRedirectOrigin() {
+  return isNativeIOSApp() ? PRODUCTION_WEB_ORIGIN : window.location.origin
+}
 
 async function getCapacitor() {
   if (capacitorAvailable === false) return null
