@@ -12,19 +12,39 @@ const FAITH_LABELS = {
 
 const TRANSLATIONS = ['KJV', 'NIV', 'NLT', 'ESV', 'NKJV']
 
-// A curated set of IANA zone names, not an exhaustive list -- the
-// database validates whatever is actually sent (groups_timezone_valid
-// check constraint, 20260714000004_shared_dinner_session.sql), so this
-// is only a convenience picker, not the source of truth for validity.
-const TIMEZONES = [
-  { value: 'America/New_York', label: 'Eastern (New York)' },
-  { value: 'America/Chicago', label: 'Central (Chicago)' },
-  { value: 'America/Denver', label: 'Mountain (Denver)' },
-  { value: 'America/Phoenix', label: 'Arizona (no DST)' },
-  { value: 'America/Los_Angeles', label: 'Pacific (Los Angeles)' },
-  { value: 'America/Anchorage', label: 'Alaska' },
-  { value: 'Pacific/Honolulu', label: 'Hawaii' },
+// Fallback only, used when the browser/WebView doesn't support
+// Intl.supportedValuesOf (older Android WebViews) -- the database
+// validates whatever is actually sent (groups_timezone_valid check
+// constraint, 20260714000004_shared_dinner_session.sql) regardless of
+// what this list offers, so a missing zone here is never a data-safety
+// issue, only a convenience gap.
+const FALLBACK_TIMEZONES = [
+  'America/New_York', 'America/Chicago', 'America/Denver', 'America/Phoenix',
+  'America/Los_Angeles', 'America/Anchorage', 'Pacific/Honolulu',
+  'America/Sao_Paulo', 'Europe/London', 'Europe/Paris', 'Europe/Moscow',
+  'Africa/Johannesburg', 'Asia/Dubai', 'Asia/Kolkata', 'Asia/Shanghai',
+  'Asia/Tokyo', 'Australia/Sydney', 'Pacific/Auckland', 'UTC'
 ]
+
+// Full worldwide IANA zone list where the runtime supports it (all
+// modern Chrome/Android WebViews and desktop browsers do); falls back
+// to a small curated set on anything older rather than crashing.
+function getAllTimezones() {
+  try {
+    if (typeof Intl.supportedValuesOf === 'function') {
+      return Intl.supportedValuesOf('timeZone')
+    }
+  } catch (err) {}
+  return FALLBACK_TIMEZONES
+}
+
+function detectDeviceTimezone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone
+  } catch (err) {
+    return null
+  }
+}
 
 // get_or_create_tonight_session() (20260714000004_shared_dinner_session.sql)
 // is the single, atomic, server-side "lock tonight's verse" operation --
@@ -44,7 +64,7 @@ async function lockVerseForGroup(groupId) {
 
 export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
   const { user, profile, signOut, updateProfile } = useAuth()
-  const { group, members, memberProfiles, createGroup, joinGroup, leaveGroup, removeMember, reload: reloadFamily } = useFamily()
+  const { group, members, memberProfiles, createGroup, joinGroup, leaveGroup, transferOwnership, deleteGroup, removeMember, reload: reloadFamily } = useFamily()
 
   const [toast, setToast] = useState('')
   const [mode, setMode] = useState('none')
@@ -65,6 +85,21 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
   const [removeConfirm, setRemoveConfirm] = useState(null) // { id, name } of member pending removal
   const [removing, setRemoving] = useState(false)
   const [savingTimezone, setSavingTimezone] = useState(false)
+  const [tzInput, setTzInput] = useState('')
+  const [showTransfer, setShowTransfer] = useState(false)
+  const [transferTarget, setTransferTarget] = useState('')
+  const [transferring, setTransferring] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deletingTable, setDeletingTable] = useState(false)
+
+  // Populated once; Intl.supportedValuesOf('timeZone') returns ~400+
+  // real IANA zone names on any modern runtime -- computed once per
+  // mount, not per render, since it never changes during a session.
+  const [allTimezones] = useState(getAllTimezones)
+
+  useEffect(() => {
+    setTzInput(group?.timezone || '')
+  }, [group?.timezone])
 
   // memberProfiles (id + name only, never email) comes from useFamily(),
   // which sources it from the get_my_group_members() RPC -- profiles
@@ -108,23 +143,36 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
   }
 
   async function handleChangeTimezone(tz) {
-    if (!group?.id || !group.isOwner || tz === group.timezone) return
+    const trimmed = (tz || '').trim()
+    if (!group?.id || !group.isOwner || !trimmed || trimmed === group.timezone) return
     setSavingTimezone(true)
     try {
       // groups_update_owner RLS policy already permits this (owner-only
       // update on their own group). The database's own
       // groups_timezone_valid check constraint validates tz server-side
-      // regardless of what this picker offers -- this call cannot store
-      // an unvalidated value even if the client were compromised.
-      const { error } = await supabase.from('groups').update({ timezone: tz }).eq('id', group.id)
+      // regardless of what this picker (or a manually typed value)
+      // offers -- this call cannot store an unvalidated zone name even
+      // if the client were compromised. DST is handled entirely by
+      // Postgres resolving this IANA name at query time (see
+      // canonical_dinner_date()), never by a stored offset here, so
+      // switching zones is inherently DST-safe with no extra logic
+      // needed on this end.
+      const { error } = await supabase.from('groups').update({ timezone: trimmed }).eq('id', group.id)
       if (error) throw error
       await reloadFamily()
       showToast('Table timezone updated. Future dinners will use it. ✓')
     } catch (err) {
       console.error('[settings:handleChangeTimezone]', err?.message)
-      showToast('Could not update timezone. Try again.')
+      showToast('Not a recognized timezone. Pick one from the list or try again.')
     }
     setSavingTimezone(false)
+  }
+
+  function handleUseDeviceTimezone() {
+    const detected = detectDeviceTimezone()
+    if (!detected) { showToast('Could not detect your device timezone.'); return }
+    setTzInput(detected)
+    handleChangeTimezone(detected)
   }
 
   function showToast(msg) {
@@ -172,6 +220,32 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
       showToast('You have left the group.')
     }
     setLeaving(false)
+  }
+
+  async function handleTransferOwnership() {
+    if (!transferTarget) { showToast('Choose who takes over first.'); return }
+    setTransferring(true)
+    const result = await transferOwnership(transferTarget)
+    if (result.error) {
+      showToast(result.error)
+    } else {
+      setShowTransfer(false)
+      setTransferTarget('')
+      showToast('Ownership transferred. ✓')
+    }
+    setTransferring(false)
+  }
+
+  async function handleDeleteGroup() {
+    setDeletingTable(true)
+    const result = await deleteGroup()
+    if (result.error) {
+      showToast(result.error)
+    } else {
+      setShowDeleteConfirm(false)
+      showToast('The table has been deleted.')
+    }
+    setDeletingTable(false)
   }
 
   async function handleRemoveMember() {
@@ -421,16 +495,40 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
               <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.5rem', lineHeight: 1.6 }}>
                 <span style={{ color: 'var(--gold)', fontWeight: 500 }}>Table timezone:</span> used to decide when tonight's dinner begins for everyone at the table, no matter where they are.
               </p>
-              <select
-                value={group.timezone || 'America/Chicago'}
-                onChange={e => handleChangeTimezone(e.target.value)}
+              <p style={{ fontSize: '12px', color: 'var(--cream)', marginBottom: '0.5rem' }}>
+                Currently: <strong>{group.timezone || 'America/Chicago'}</strong>
+              </p>
+              <button
+                className="btn"
+                style={{ width: '100%', marginBottom: 8, fontSize: '12px' }}
+                onClick={handleUseDeviceTimezone}
                 disabled={savingTimezone}
-                style={{ width: '100%' }}
               >
-                {TIMEZONES.map(tz => (
-                  <option key={tz.value} value={tz.value}>{tz.label}</option>
-                ))}
-              </select>
+                📍 Use my device's timezone
+              </button>
+              <input
+                type="text"
+                list="dwj-timezone-options"
+                value={tzInput}
+                onChange={e => setTzInput(e.target.value)}
+                placeholder="Search or type an IANA timezone (e.g. Europe/London)"
+                disabled={savingTimezone}
+                style={{ marginBottom: 8 }}
+              />
+              <datalist id="dwj-timezone-options">
+                {allTimezones.map(tz => <option key={tz} value={tz} />)}
+              </datalist>
+              <button
+                className="btn btn-gold"
+                style={{ width: '100%', fontSize: '13px' }}
+                onClick={() => handleChangeTimezone(tzInput)}
+                disabled={savingTimezone || !tzInput.trim() || tzInput.trim() === group.timezone}
+              >
+                {savingTimezone ? 'Saving...' : 'Save timezone'}
+              </button>
+              <p style={{ fontSize: '11px', color: 'var(--silver)', opacity: 0.6, marginTop: '0.5rem', fontStyle: 'italic' }}>
+                Any real-world (IANA) timezone works, worldwide. Daylight saving is handled automatically — this is never a fixed offset.
+              </p>
             </div>
           )}
 
@@ -446,21 +544,91 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
             <button className="btn btn-gold" onClick={shareInviteCode}>📤 Share invite</button>
           </div>
 
-          {/* Leave */}
-          {!showLeaveConfirm ? (
-            <button className="btn" onClick={() => setShowLeaveConfirm(true)} style={{ width: '100%', fontSize: '12px', color: '#E57373', borderColor: 'rgba(229,115,115,0.2)', marginTop: '0.5rem' }}>
-              🚪 Leave this group
-            </button>
-          ) : (
-            <div style={{ textAlign: 'center', marginTop: '0.5rem' }}>
-              <p style={{ fontSize: '13px', color: 'var(--silver)', marginBottom: '0.75rem' }}>Are you sure you want to leave {group.name}?</p>
-              <div className="btn-row">
-                <button className="btn" onClick={() => setShowLeaveConfirm(false)} style={{ flex: 1 }}>Cancel</button>
-                <button className="btn" onClick={handleLeaveGroup} disabled={leaving} style={{ flex: 1, color: '#E57373', borderColor: 'rgba(229,115,115,0.2)' }}>
-                  {leaving ? 'Leaving...' : 'Yes, leave'}
+          {/* Ownership protection: a sole owner can't orphan the table
+              by leaving (delete is the correct action instead); an
+              owner of a multi-member table must transfer ownership
+              before leaving. leave_group() (see
+              20260725000001_group_ownership_protection.sql) enforces
+              this server-side regardless of what this UI shows -- the
+              conditional rendering below just guides toward the
+              correct action instead of a dead-end error. */}
+          {group.isOwner && memberProfiles.length > 1 && (
+            <div style={{ marginTop: '0.5rem' }}>
+              {!showTransfer ? (
+                <button className="btn" onClick={() => setShowTransfer(true)} style={{ width: '100%', fontSize: '12px' }}>
+                  👑 Transfer ownership
                 </button>
-              </div>
+              ) : (
+                <div style={{ background: 'var(--bg3)', borderRadius: 10, padding: '0.875rem', border: '0.5px solid var(--border)', textAlign: 'center' }}>
+                  <p style={{ fontSize: '13px', color: 'var(--white)', marginBottom: '0.625rem' }}>Who should take over as owner?</p>
+                  <select value={transferTarget} onChange={e => setTransferTarget(e.target.value)} style={{ width: '100%', marginBottom: 8 }}>
+                    <option value="">Choose a member...</option>
+                    {memberProfiles.filter(m => m.id !== user.id).map(m => (
+                      <option key={m.id} value={m.id}>{m.name}</option>
+                    ))}
+                  </select>
+                  <div className="btn-row">
+                    <button className="btn" onClick={() => { setShowTransfer(false); setTransferTarget('') }} style={{ flex: 1 }}>Cancel</button>
+                    <button className="btn btn-gold" onClick={handleTransferOwnership} disabled={transferring || !transferTarget} style={{ flex: 1 }}>
+                      {transferring ? 'Transferring...' : 'Transfer'}
+                    </button>
+                  </div>
+                </div>
+              )}
+              {!showLeaveConfirm ? (
+                <button className="btn" onClick={() => setShowLeaveConfirm(true)} style={{ width: '100%', fontSize: '12px', color: '#E57373', borderColor: 'rgba(229,115,115,0.2)', marginTop: '0.5rem' }}>
+                  🚪 Leave this group
+                </button>
+              ) : (
+                <div style={{ textAlign: 'center', marginTop: '0.5rem' }}>
+                  <p style={{ fontSize: '13px', color: 'var(--silver)', marginBottom: '0.75rem' }}>Are you sure you want to leave {group.name}?</p>
+                  <div className="btn-row">
+                    <button className="btn" onClick={() => setShowLeaveConfirm(false)} style={{ flex: 1 }}>Cancel</button>
+                    <button className="btn" onClick={handleLeaveGroup} disabled={leaving} style={{ flex: 1, color: '#E57373', borderColor: 'rgba(229,115,115,0.2)' }}>
+                      {leaving ? 'Leaving...' : 'Yes, leave'}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
+          )}
+
+          {group.isOwner && memberProfiles.length <= 1 && (
+            !showDeleteConfirm ? (
+              <button className="btn" onClick={() => setShowDeleteConfirm(true)} style={{ width: '100%', fontSize: '12px', color: '#E57373', borderColor: 'rgba(229,115,115,0.2)', marginTop: '0.5rem' }}>
+                🗑 Delete this table
+              </button>
+            ) : (
+              <div style={{ textAlign: 'center', marginTop: '0.5rem' }}>
+                <p style={{ fontSize: '13px', color: 'var(--silver)', marginBottom: '0.75rem' }}>
+                  Delete {group.name}? This can't be undone from here — you'll need a fresh table if you want to start again.
+                </p>
+                <div className="btn-row">
+                  <button className="btn" onClick={() => setShowDeleteConfirm(false)} style={{ flex: 1 }}>Cancel</button>
+                  <button className="btn" onClick={handleDeleteGroup} disabled={deletingTable} style={{ flex: 1, color: '#E57373', borderColor: 'rgba(229,115,115,0.2)' }}>
+                    {deletingTable ? 'Deleting...' : 'Yes, delete'}
+                  </button>
+                </div>
+              </div>
+            )
+          )}
+
+          {!group.isOwner && (
+            !showLeaveConfirm ? (
+              <button className="btn" onClick={() => setShowLeaveConfirm(true)} style={{ width: '100%', fontSize: '12px', color: '#E57373', borderColor: 'rgba(229,115,115,0.2)', marginTop: '0.5rem' }}>
+                🚪 Leave this group
+              </button>
+            ) : (
+              <div style={{ textAlign: 'center', marginTop: '0.5rem' }}>
+                <p style={{ fontSize: '13px', color: 'var(--silver)', marginBottom: '0.75rem' }}>Are you sure you want to leave {group.name}?</p>
+                <div className="btn-row">
+                  <button className="btn" onClick={() => setShowLeaveConfirm(false)} style={{ flex: 1 }}>Cancel</button>
+                  <button className="btn" onClick={handleLeaveGroup} disabled={leaving} style={{ flex: 1, color: '#E57373', borderColor: 'rgba(229,115,115,0.2)' }}>
+                    {leaving ? 'Leaving...' : 'Yes, leave'}
+                  </button>
+                </div>
+              </div>
+            )
           )}
 
           {/* Setup guide — always visible */}
