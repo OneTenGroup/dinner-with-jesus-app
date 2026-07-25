@@ -16,6 +16,7 @@
     { "src": "/jesus-welcome.png", "dest": "/jesus-welcome.png" },
     { "src": "/favicon.png", "dest": "/favicon.png" },
     { "src": "/manifest.json", "dest": "/manifest.json" },
+    { "src": "/.well-known/assetlinks.json", "dest": "/.well-known/assetlinks.json", "headers": { "Content-Type": "application/json" } },
     { "src": "^/$", "dest": "/landing.html" },
     { "src": "/delete-account", "dest": "/delete-account.html" },
     { "src": "/(.*)", "dest": "/index.html" }

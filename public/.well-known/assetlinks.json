@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "ai.flippingtables.app",
+      "sha256_cert_fingerprints": [
+        "49:4D:82:C7:D4:65:A0:1F:77:D0:F5:3D:20:A6:58:5D:9E:9A:04:2C:4B:7F:09:63:47:AE:8E:CE:A1:99:61:CD"
+      ]
+    }
+  }
+]
