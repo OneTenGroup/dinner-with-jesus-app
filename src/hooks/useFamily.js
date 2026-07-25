@@ -152,12 +152,44 @@ export function useFamily() {
   async function leaveGroup() {
     if (!user?.id) return { error: 'Not logged in' }
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ group_id: null })
-        .eq('id', user.id)
+      // leave_group() is a SECURITY DEFINER RPC (see
+      // 20260725000001_group_ownership_protection.sql) -- it blocks
+      // the owner from leaving outright (a multi-member owner must
+      // transferOwnership() first, a sole owner must deleteGroup()
+      // instead), which a plain client-side profiles.group_id update
+      // could never enforce since profiles_update_own permits it
+      // regardless of role.
+      const { error } = await supabase.rpc('leave_group')
+      if (error) return { error: error.message || 'Could not leave group' }
 
-      if (error) return { error: 'Could not leave group' }
+      await loadGroup()
+      return { success: true }
+    } catch (err) {
+      return { error: 'Something went wrong' }
+    }
+  }
+
+  async function transferOwnership(newOwnerId) {
+    if (!user?.id || !group?.id) return { error: 'Not logged in' }
+    try {
+      const { error } = await supabase.rpc('transfer_group_ownership', {
+        group_id_input: group.id,
+        new_owner_id: newOwnerId
+      })
+      if (error) return { error: error.message || 'Could not transfer ownership' }
+
+      await loadGroup()
+      return { success: true }
+    } catch (err) {
+      return { error: 'Something went wrong' }
+    }
+  }
+
+  async function deleteGroup() {
+    if (!user?.id || !group?.id) return { error: 'Not logged in' }
+    try {
+      const { error } = await supabase.rpc('delete_group', { group_id_input: group.id })
+      if (error) return { error: error.message || 'Could not delete table' }
 
       await loadGroup()
       return { success: true }
@@ -197,6 +229,8 @@ export function useFamily() {
     createGroup,
     joinGroup,
     leaveGroup,
+    transferOwnership,
+    deleteGroup,
     removeMember,
     family: group,
     allFamilies: group ? [group] : [],

@@ -148,12 +148,12 @@ export default function OnboardingPage({ onComplete }) {
     } catch (err) {}
   }
 
-  async function handleFinish() {
+  async function handleFinish(destination) {
     setLoading(true)
     await updateProfile({ onboarding_complete: true })
-    track('onboarding_complete')
+    track('onboarding_complete', { destination: destination || 'home' })
     setLoading(false)
-    onComplete()
+    onComplete(destination)
   }
 
   function shareInviteCode() {
@@ -325,7 +325,7 @@ export default function OnboardingPage({ onComplete }) {
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🙏</div>
           <h2 style={{ fontFamily: 'Lora, serif', fontSize: '1.4rem', color: 'var(--white)', marginBottom: '0.75rem', lineHeight: 1.4 }}>
-            Your table is set.
+            {createdGroup ? 'Your table is ready.' : 'Your table is set.'}
           </h2>
 
           {verseLocked && (
@@ -343,19 +343,35 @@ export default function OnboardingPage({ onComplete }) {
               <div style={{ fontFamily: 'Lora, serif', fontSize: '2rem', fontWeight: 600, color: 'var(--gold)', letterSpacing: '0.2em', marginBottom: '0.75rem' }}>
                 {createdGroup.invite_code}
               </div>
-              <button className="btn btn-gold" onClick={shareInviteCode} style={{ width: '100%', marginBottom: 6 }}>
-                📤 Share invite now
-              </button>
             </div>
           )}
 
           <p style={{ fontSize: '13px', color: 'var(--silver)', lineHeight: 1.7, marginBottom: '1.5rem', fontStyle: 'italic' }}>
-            The table is ready. He's already there. Come when you're ready — tonight, at dinner.
+            {createdGroup
+              ? "The table is ready. He's already there. Invite your family whenever you're ready — or just come sit down. A table of one is still a table."
+              : "The table is ready. He's already there. Come when you're ready — tonight, at dinner."}
           </p>
 
-          <button className="btn btn-gold" style={{ width: '100%' }} onClick={handleFinish}>
-            Come to the Table 🙏
-          </button>
+          {createdGroup ? (
+            <>
+              <button className="btn btn-gold" style={{ width: '100%', marginBottom: 10 }} onClick={() => handleFinish('table')}>
+                Come to the Table 🙏
+              </button>
+              <button className="btn" style={{ width: '100%', marginBottom: 10 }} onClick={shareInviteCode}>
+                📤 Invite someone
+              </button>
+              <button
+                onClick={() => handleFinish('home')}
+                style={{ background: 'none', border: 'none', color: 'var(--silver)', fontSize: '13px', cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: '3px', opacity: 0.7 }}
+              >
+                Invite later
+              </button>
+            </>
+          ) : (
+            <button className="btn btn-gold" style={{ width: '100%' }} onClick={() => handleFinish()}>
+              Come to the Table 🙏
+            </button>
+          )}
         </div>
       )}
     </div>

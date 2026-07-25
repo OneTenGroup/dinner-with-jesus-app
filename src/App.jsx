@@ -164,7 +164,17 @@ export default function App() {
   }
 
   if (user && profile && !profile.onboarding_complete && !onboardingDone) {
-    return <OnboardingPage onComplete={() => setOnboardingDone(true)} />
+    return (
+      <OnboardingPage
+        onComplete={(destination) => {
+          setOnboardingDone(true)
+          if (destination === 'table') {
+            setActiveTab('table')
+            setAtTable(true)
+          }
+        }}
+      />
+    )
   }
 
   function goToTable() {
@@ -235,24 +245,30 @@ export default function App() {
         />
       </div>
 
-      {!atTable && (
-        <nav className="bottom-nav">
-          {tabs.map(t => (
-            <button
-              key={t.id}
-              className={`nav-item ${activeTab === t.id ? 'active' : ''}`}
-              onClick={() => {
-                setActiveTab(t.id)
-                track('tab_opened', { tab: t.id })
-                if (t.id === 'table') setAtTable(true)
-              }}
-            >
-              <span className="nav-icon">{t.icon}</span>
-              <span className="nav-label">{t.label}</span>
-            </button>
-          ))}
-        </nav>
-      )}
+      {/* Always rendered, including while atTable -- a user must always
+          have an obvious route to Home, Table, Journal, and Settings
+          without relying on browser controls or the "Leave the Table"
+          ritual. Full-screen overlays within TablePage (the blessing
+          screen, the full-prayer overlay) already render above this
+          via position:fixed, so this doesn't compete with those
+          deliberate immersive moments -- it's just no longer hidden
+          for the rest of the Table screen. */}
+      <nav className="bottom-nav">
+        {tabs.map(t => (
+          <button
+            key={t.id}
+            className={`nav-item ${activeTab === t.id ? 'active' : ''}`}
+            onClick={() => {
+              setActiveTab(t.id)
+              track('tab_opened', { tab: t.id })
+              if (t.id === 'table') setAtTable(true)
+            }}
+          >
+            <span className="nav-icon">{t.icon}</span>
+            <span className="nav-label">{t.label}</span>
+          </button>
+        ))}
+      </nav>
     </div>
   )
 }
