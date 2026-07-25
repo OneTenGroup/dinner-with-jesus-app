@@ -46,6 +46,10 @@ body {
   margin: 0 auto;
   position: relative;
   overflow: hidden;
+  /* Keeps content clear of the iOS notch/Dynamic Island. Requires
+     viewport-fit=cover in index.html's viewport meta tag -- without it
+     this resolves to 0 everywhere, harmless on Android/desktop web. */
+  padding-top: env(safe-area-inset-top);
 }
 
 .screen {

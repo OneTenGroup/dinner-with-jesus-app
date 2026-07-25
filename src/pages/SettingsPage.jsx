@@ -79,7 +79,7 @@ async function lockVerseForGroup(groupId) {
 }
 
 export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
-  const { user, profile, signOut, updateProfile } = useAuth()
+  const { user, profile, signOut, updateProfile, deleteAccount } = useAuth()
   const { group, members, memberProfiles, createGroup, joinGroup, leaveGroup, transferOwnership, deleteGroup, removeMember, reload: reloadFamily } = useFamily()
 
   const [toast, setToast] = useState('')
@@ -107,6 +107,9 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
   const [transferring, setTransferring] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleteConfirmText, setDeleteConfirmText] = useState('')
+  const [showDeleteAccountConfirm, setShowDeleteAccountConfirm] = useState(false)
+  const [deleteAccountText, setDeleteAccountText] = useState('')
+  const [deletingAccount, setDeletingAccount] = useState(false)
   const [deletingTable, setDeletingTable] = useState(false)
 
   // Populated once; Intl.supportedValuesOf('timeZone') returns ~400+
@@ -261,6 +264,19 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
       showToast('Ownership transferred. ✓')
     }
     setTransferring(false)
+  }
+
+  async function handleDeleteAccount() {
+    if (deleteAccountText !== 'DELETE') return
+    setDeletingAccount(true)
+    const result = await deleteAccount()
+    if (result.error) {
+      showToast(result.error)
+      setDeletingAccount(false)
+    }
+    // On success, signOut() inside deleteAccount() already fired --
+    // AuthContext's onAuthStateChange listener takes App.jsx back to
+    // AuthPage on its own; nothing else to do here.
   }
 
   async function handleDeleteGroup() {
@@ -822,11 +838,48 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
 
       <button className="btn" style={{ marginBottom: '0.75rem', color: '#E57373', borderColor: 'rgba(229,115,115,0.2)' }} onClick={signOut}>Sign out</button>
 
-      <p style={{ textAlign: 'center', marginBottom: '2rem' }}>
-        <a href="/delete-account" target="_blank" rel="noreferrer" style={{ fontSize: '12px', color: 'var(--silver)', opacity: 0.6, textDecoration: 'underline', textUnderlineOffset: '3px' }}>
-          Delete my account
-        </a>
-      </p>
+      {!showDeleteAccountConfirm ? (
+        <p style={{ textAlign: 'center', marginBottom: '2rem' }}>
+          <button
+            onClick={() => setShowDeleteAccountConfirm(true)}
+            style={{ background: 'none', border: 'none', fontSize: '12px', color: 'var(--silver)', opacity: 0.6, textDecoration: 'underline', textUnderlineOffset: '3px', cursor: 'pointer' }}
+          >
+            Delete my account
+          </button>
+        </p>
+      ) : (
+        <div style={{ textAlign: 'center', marginBottom: '2rem', background: 'var(--bg2)', border: '0.5px solid rgba(229,115,115,0.3)', borderRadius: 10, padding: '1rem' }}>
+          <p style={{ fontSize: '13px', color: 'var(--white)', marginBottom: '0.5rem' }}>
+            This permanently deletes your account, sign-in, and personal journal. If you own a dinner circle with others, ownership passes to another member automatically; if you're the only one at your table, it's archived (never lost — see the account deletion policy for details).
+          </p>
+          <p style={{ fontSize: '12px', color: 'var(--silver)', marginBottom: '0.75rem', fontStyle: 'italic' }}>
+            Type <strong style={{ color: 'var(--cream)' }}>DELETE</strong> to confirm.
+          </p>
+          <input
+            type="text"
+            value={deleteAccountText}
+            onChange={e => setDeleteAccountText(e.target.value)}
+            placeholder="DELETE"
+            style={{ marginBottom: 8, textAlign: 'center' }}
+          />
+          <div className="btn-row">
+            <button className="btn" onClick={() => { setShowDeleteAccountConfirm(false); setDeleteAccountText('') }} style={{ flex: 1 }}>Cancel</button>
+            <button
+              className="btn"
+              onClick={handleDeleteAccount}
+              disabled={deletingAccount || deleteAccountText !== 'DELETE'}
+              style={{ flex: 1, color: '#E57373', borderColor: 'rgba(229,115,115,0.2)' }}
+            >
+              {deletingAccount ? 'Deleting...' : 'Yes, delete my account'}
+            </button>
+          </div>
+          <p style={{ marginTop: '0.75rem' }}>
+            <a href="/delete-account" target="_blank" rel="noreferrer" style={{ fontSize: '11px', color: 'var(--silver)', opacity: 0.5, textDecoration: 'underline', textUnderlineOffset: '3px' }}>
+              Prefer email instead? Request deletion by email
+            </a>
+          </p>
+        </div>
+      )}
 
       <div className={`toast ${toast ? 'show' : ''}`}>{toast}</div>
     </div>
