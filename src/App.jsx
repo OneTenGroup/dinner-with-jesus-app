@@ -16,6 +16,7 @@ import AdminPage from './pages/AdminPage'
 import GuestTablePage from './pages/GuestTablePage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
 import { setUpdateBusy, registerUpdateNotifyHandler, applyUpdateNow } from './lib/appUpdate'
+import { hideSplashScreen, configureStatusBar, installExternalLinkHandler } from './lib/nativeBridge'
 
 export default function App() {
   const { user, profile, loading } = useAuth()
@@ -64,6 +65,22 @@ export default function App() {
       setAppReady(true)
     }
   }, [loading, familyLoading])
+
+  // Native-shell setup (iOS Capacitor only -- no-op on web/Android, see
+  // src/lib/nativeBridge.js). External link interception is wired once;
+  // the native splash screen hands off to this same appReady moment the
+  // web loading state already uses, so there is no separate native
+  // loading flash before or after it.
+  useEffect(() => {
+    installExternalLinkHandler()
+  }, [])
+
+  useEffect(() => {
+    if (appReady) {
+      hideSplashScreen()
+      configureStatusBar()
+    }
+  }, [appReady])
 
   // Show KendylScene once app is ready and user is logged in -- once per
   // app session (sessionStorage), not once per calendar day. Runs only

@@ -56,6 +56,20 @@ export function AuthProvider({ children }) {
     await supabase.auth.signOut()
   }
 
+  async function deleteAccount() {
+    // delete_own_account() is a SECURITY DEFINER RPC (see
+    // 20260726000001_self_service_account_deletion.sql) -- ordinary
+    // authenticated roles have no grant on auth.users directly, so
+    // this can only happen server-side. Auto-transfers or archives any
+    // group the caller owns, then deletes their own account; can never
+    // affect another user's account (auth.uid() is the only identity
+    // source).
+    const { error } = await supabase.rpc('delete_own_account')
+    if (error) return { error: error.message || 'Could not delete account' }
+    await supabase.auth.signOut()
+    return { success: true }
+  }
+
   async function updateProfile(updates) {
     const { error } = await supabase
       .from('profiles')
@@ -68,7 +82,7 @@ export function AuthProvider({ children }) {
   return (
     <AuthContext.Provider value={{
       user, profile, loading,
-      signUp, signIn, signOut, updateProfile,
+      signUp, signIn, signOut, updateProfile, deleteAccount,
       refreshProfile: () => fetchProfile(user?.id)
     }}>
       {children}

@@ -19,6 +19,20 @@ android-twa/local.properties
 android-twa/release/
 *.aab
 *.apk
+
+# iOS (ios/) -- CocoaPods/Xcode local state and build products. The
+# actual Xcode project, Info.plist, and asset catalogs ARE committed --
+# only machine-local/build-generated content is excluded here.
+ios/App/Pods/
+ios/App/build/
+ios/App/DerivedData/
+ios/App/App.xcworkspace/xcuserdata/
+ios/App/App.xcodeproj/xcuserdata/
+ios/App/App.xcodeproj/project.xcworkspace/xcuserdata/
+*.ipa
+*.p12
+*.mobileprovision
+*.certSigningRequest
 *.jks
 *.keystore
 *.pem
