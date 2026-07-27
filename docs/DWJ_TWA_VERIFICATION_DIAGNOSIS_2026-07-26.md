@@ -1,9 +1,33 @@
 # DWJ Android TWA verification — diagnosis, parked 2026-07-26
 
-## Symptom
-Mandy's Google Play install of "Dinner with Jesus" opens with a visible Chrome Custom Tab
-bar showing flippingtables.ai. Steve's install does not. Mandy deleted and reinstalled
-directly from Google Play; the bar persisted.
+## RESOLVED 2026-07-27
+
+Root cause was a stale Play Store production release — the currently-published build predated
+the assetlinks.json fix (`db3a2c7`, 2026-07-25 13:56) and/or the upload-key situation, so
+Digital Asset Link verification never had a chance to succeed for a fresh install. Steve's
+existing install had presumably verified successfully at an earlier point and never lost that
+state, which is why only Mandy's fresh reinstall showed the bug.
+
+Fix: Google Play upload-key reset was accepted; confirmed the Play Console **Upload key
+certificate** SHA-256 (`9B:D4:36:71:5B:C7:48:01:20:43:DD:E0:1B:40:8B:3F:F0:C7:C0:7F:1C:CC:75:
+C7:66:75:DE:9B:46:8F:CF:14`) matches the local `dwj-upload-key.jks` exactly — verified three
+independent ways (keytool against the keystore, the exported cert file, and the signed AAB
+itself). Built and signed a fresh release (versionCode 3, versionName 1.0.2.0,
+`android-twa/release/app-release-v3.aab`, commit `ca4f8b6`), uploaded to Internal Testing by
+Steve. After Google Play's propagation delay, the update installed and **the app now opens
+full-screen with no Chrome bar** — confirmed on a real device (Mandy's), the same device that
+exhibited the bug. Full build/sign process now documented at
+`docs/DWJ_ANDROID_TWA_RELEASE_PROCESS.md`.
+
+**Not separately re-tested and not necessary to before production:** the bare-domain
+(`flippingtables.ai`, no `www`) Vercel redirect noted below is still present. It was never the
+root cause (the TWA's host is `www`) and remains a low-priority, optional cleanup item, not a
+blocker.
+
+## Original symptom (2026-07-25/26)
+Mandy's Google Play install of "Dinner with Jesus" opens with a visible Chrome Custom Tab bar
+showing flippingtables.ai. Steve's install does not. Mandy deleted and reinstalled directly
+from Google Play; the bar persisted.
 
 ## Confirmed facts (direct inspection, not assumption)
 
