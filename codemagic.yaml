@@ -6,7 +6,7 @@ workflows:
 
     environment:
       groups:
-        - appstore_credentials
+        - apple_credentials_bundle
       vars:
         XCODE_PROJECT: "ios/App/App.xcodeproj"
         XCODE_SCHEME: "App"
@@ -28,6 +28,41 @@ workflows:
       - name: Capacitor sync iOS
         script: |
           npx cap sync ios
+
+      - name: Load validated Apple credentials
+        script: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64
+          import json
+          import os
+
+          encoded = os.environ["CODEMAGIC_APPLE_CREDENTIALS_B64"]
+          credentials = json.loads(base64.b64decode(encoded).decode("utf-8"))
+
+          required = [
+              "APP_STORE_CONNECT_PRIVATE_KEY",
+              "APP_STORE_CONNECT_KEY_IDENTIFIER",
+              "APP_STORE_CONNECT_ISSUER_ID",
+              "CERTIFICATE_PRIVATE_KEY",
+          ]
+
+          missing = [key for key in required if not credentials.get(key)]
+          if missing:
+              raise RuntimeError("Missing required credential fields")
+
+          cm_env = os.environ["CM_ENV"]
+          with open(cm_env, "a", encoding="utf-8") as output:
+              for key in required:
+                  value = credentials[key]
+                  if "\n" in value:
+                      delimiter = f"__CM_{key}_END__"
+                      output.write(f"{key}<<{delimiter}\n")
+                      output.write(value.rstrip("\n") + "\n")
+                      output.write(delimiter + "\n")
+                  else:
+                      output.write(f"{key}={value}\n")
+          PY
 
       - name: Initialize keychain
         script: keychain initialize
