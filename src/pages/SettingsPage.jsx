@@ -10,8 +10,6 @@ const FAITH_LABELS = {
   3: 'Challenging & application'
 }
 
-const TRANSLATIONS = ['KJV', 'NIV', 'NLT', 'ESV', 'NKJV']
-
 // Fallback only, used when the browser/WebView doesn't support
 // Intl.supportedValuesOf (older Android WebViews) -- the database
 // validates whatever is actually sent (groups_timezone_valid check
@@ -320,16 +318,6 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
     } else {
       navigator.clipboard.writeText(msg)
       showToast('Invite message copied! ✓')
-    }
-  }
-
-  async function handleTranslation(t) {
-    const { error } = await updateProfile({ preferred_translation: t })
-    if (error) {
-      console.error('[settings:handleTranslation]', error.message)
-      showToast('Could not update translation. Try again.')
-    } else {
-      showToast(`Translation set to ${t} ✓`)
     }
   }
 
@@ -775,16 +763,13 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
       </div>
 
       {/* Translation */}
-      <span className="section-label">Bible Translation</span>
+      <span className="section-label">Dinner Scripture Translation</span>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: '0.5rem' }}>
-        {TRANSLATIONS.map(t => (
-          <button key={t} onClick={() => handleTranslation(t)}
-            style={{ padding: '6px 14px', borderRadius: 999, border: `0.5px solid ${profile?.preferred_translation === t ? 'var(--gold)' : 'var(--border)'}`, background: profile?.preferred_translation === t ? 'var(--gold-soft)' : 'var(--bg3)', color: profile?.preferred_translation === t ? 'var(--gold)' : 'var(--silver)', fontSize: '13px', cursor: 'pointer' }}>
-            {t}
-          </button>
-        ))}
+        <div style={{ padding: '6px 14px', borderRadius: 999, border: '0.5px solid var(--border-gold)', background: 'var(--gold-soft)', color: 'var(--gold)', fontSize: '13px' }}>
+          WEB
+        </div>
       </div>
-      <p style={{ fontSize: '11px', color: 'var(--silver)', opacity: 0.6, marginBottom: '1.5rem', fontStyle: 'italic' }}>WEB translation loaded. Other translations coming soon.</p>
+      <p style={{ fontSize: '11px', color: 'var(--silver)', opacity: 0.6, marginBottom: '1.5rem', fontStyle: 'italic' }}>Dinner verses use the World English Bible. The Bible reader also includes KJV.</p>
 
       {/* About */}
       <span className="section-label">About</span>
