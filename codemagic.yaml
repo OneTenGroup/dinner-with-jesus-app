@@ -7,14 +7,12 @@ workflows:
     environment:
       groups:
         - appstore_credentials
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: ai.flippingtables.app
       vars:
         XCODE_PROJECT: "ios/App/App.xcodeproj"
         XCODE_SCHEME: "App"
         XCODE_CONFIGURATION: "Release"
         TEAM_ID: "S7MNGR6MUX"
+        BUNDLE_ID: ai.flippingtables.app
       node: latest
       xcode: latest
 
@@ -31,9 +29,20 @@ workflows:
         script: |
           npx cap sync ios
 
-      - name: Fetch/create App Store distribution certificate and provisioning profile, apply signing to Xcode project
+      - name: Initialize keychain
+        script: keychain initialize
+
+      - name: Fetch or create Apple signing files
         script: |
-          xcode-project use-profiles
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create
+
+      - name: Add signing certificate to keychain
+        script: keychain add-certificates
+
+      - name: Apply provisioning profile
+        script: xcode-project use-profiles
 
       - name: Build signed ipa for App Store distribution
         script: |
