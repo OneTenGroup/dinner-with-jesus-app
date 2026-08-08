@@ -24,20 +24,19 @@ function isChurchCTAEligible() {
   }
 }
 
-// Mirrors public.resolve_current_turn_index() in
-// 20260809000001_stateless_prayer_turn_resolution.sql exactly. Every
+// Mirrors public.resolve_current_turn() in
+// 20260809000003_individual_prayed_members_tracking.sql exactly. Every
 // direct RPC response (loadVerse, nextPrayer, toggleAbsent) uses the
 // server's OWN resolved current/next-turn values instead of this --
 // Realtime's postgres_changes payload only carries the raw row
-// (prayer_order/absent_members/prayer_turns_completed), not those
-// server-computed fields, so this exists solely to interpret an
-// incoming Realtime update the same way the server would.
-function resolveCurrentTurnIndex(prayerOrder, absentMembers, completed) {
-  const len = prayerOrder.length
-  let i = completed
-  while (i < len) {
-    if (!absentMembers.includes(prayerOrder[i])) return i
-    i += 1
+// (prayer_order/absent_members/prayed_members/rotation_advanced), not
+// those server-computed fields, so this exists solely to interpret an
+// incoming Realtime update the same way the server would. Identity-based
+// (who's in prayed_members/absent_members), never a scalar position --
+// that's what makes a returning absent member resolve correctly here too.
+function resolveCurrentTurn(prayerOrder, absentMembers, prayedMembers) {
+  for (const id of prayerOrder) {
+    if (!prayedMembers.includes(id) && !absentMembers.includes(id)) return id
   }
   return null
 }
@@ -66,10 +65,11 @@ export default function TablePage({ onLeaveTable }) {
   const [blessing, setBlessing] = useState('')
   const [showChurchCTA, setShowChurchCTA] = useState(false)
   const [showPrayerOverlay, setShowPrayerOverlay] = useState(false)
-  // prayerOrder + prayerTurnsCompleted come from the shared group_verse
-  // row (via get_or_create_tonight_session / complete_prayer_turn) --
-  // never generated or advanced locally. Every member's device resolves
-  // the same "whose turn" from the same two values.
+  // prayerOrder is the permanent fairness order; prayerTurnsCompleted is
+  // now a purely derived display count (array_length of prayed_members,
+  // 2026-08-09) that no control-flow logic here reads. Both come from
+  // the shared group_verse row (via get_or_create_tonight_session /
+  // complete_prayer_turn) -- never generated or advanced locally.
   const [prayerOrder, setPrayerOrder] = useState([])
   const [prayerTurnsCompleted, setPrayerTurnsCompleted] = useState(0)
   const [absentMembers, setAbsentMembers] = useState([])
@@ -82,7 +82,7 @@ export default function TablePage({ onLeaveTable }) {
   // is currently present," and defaulted to showing "Your turn to pray"
   // for both. The one exception is the Realtime handler below, which
   // only receives raw row data and has to mirror the server's own
-  // resolution logic (resolveCurrentTurnIndex) to interpret it.
+  // resolution logic (resolveCurrentTurn) to interpret it.
   const [currentPrayerId, setCurrentPrayerId] = useState(null)
   const [nextPrayerId, setNextPrayerId] = useState(null)
   const [allPrayed, setAllPrayed] = useState(false)
@@ -126,15 +126,21 @@ export default function TablePage({ onLeaveTable }) {
           if (!row || (sessionId && row.id !== sessionId)) return
           const newOrder = row.prayer_order || []
           const newAbsent = row.absent_members || []
-          const newCompleted = row.prayer_turns_completed || 0
+          const newPrayed = row.prayed_members || []
+          const newRotationAdvanced = !!row.rotation_advanced
           setPrayerOrder(newOrder)
-          setPrayerTurnsCompleted(newCompleted)
+          setPrayerTurnsCompleted(row.prayer_turns_completed || 0)
           setAbsentMembers(newAbsent)
-          const curIdx = resolveCurrentTurnIndex(newOrder, newAbsent, newCompleted)
-          const nextIdx = curIdx === null ? null : resolveCurrentTurnIndex(newOrder, newAbsent, curIdx + 1)
-          setCurrentPrayerId(curIdx === null ? null : newOrder[curIdx])
-          setNextPrayerId(nextIdx === null ? null : newOrder[nextIdx])
-          setAllPrayed(newCompleted >= newOrder.length)
+          // Once rotation_advanced, the night stays closed regardless of
+          // who's present now -- never re-resolve a current person after
+          // that, matching the server's own gating (2026-08-09).
+          const cur = newRotationAdvanced ? null : resolveCurrentTurn(newOrder, newAbsent, newPrayed)
+          const next = (newRotationAdvanced || cur === null)
+            ? null
+            : resolveCurrentTurn(newOrder, newAbsent, [...newPrayed, cur])
+          setCurrentPrayerId(cur)
+          setNextPrayerId(next)
+          setAllPrayed(newRotationAdvanced)
         }
       )
       .subscribe()
@@ -263,16 +269,17 @@ export default function TablePage({ onLeaveTable }) {
     setMarkingPrayer(true)
     try {
       // complete_prayer_turn() is atomic and idempotent per turn (see
-      // 20260714000004_shared_dinner_session.sql, updated
-      // 2026-08-09) -- it only advances if expected_turns_completed
-      // still matches the shared row's current value. Two devices
-      // racing to complete the same turn will not double-advance and
-      // skip a person; the loser of the race simply gets back the
-      // already-advanced, freshly-resolved state.
+      // 20260714000004_shared_dinner_session.sql, redesigned
+      // 2026-08-09) -- it records expected_current_prayer_id as having
+      // ACTUALLY prayed only if the server's own identity-based
+      // resolution still agrees that's who's up; the guard against a
+      // duplicate/racing tap is "not already in prayed_members," not a
+      // scalar count match. The loser of a race, or a stale/duplicate
+      // tap, simply gets back the true, already-resolved state.
       const justPrayedId = currentPrayerId
       const { data, error } = await supabase.rpc('complete_prayer_turn', {
         group_id_input: group.id,
-        expected_turns_completed: prayerTurnsCompleted
+        expected_current_prayer_id: currentPrayerId
       })
       if (error) throw error
       const result = data?.[0]
@@ -582,7 +589,7 @@ export default function TablePage({ onLeaveTable }) {
             ? "Tonight's prayers are complete."
             : currentPrayer
               ? `${currentPrayer}'s turn to pray`
-              : 'No one is currently marked present.'}
+              : 'No one is currently marked present. Tap a family member above to add them back.'}
         </p>
         <div style={{ background: 'var(--bg3)', borderRadius: 10, padding: '1.1rem', marginBottom: '0.875rem', border: '0.5px solid var(--border)' }}>
           <p style={{ fontFamily: 'Lora, serif', fontSize: '15px', fontStyle: 'italic', color: 'var(--cream)', lineHeight: 1.85 }}>
