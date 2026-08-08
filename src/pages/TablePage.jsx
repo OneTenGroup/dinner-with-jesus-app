@@ -54,6 +54,9 @@ export default function TablePage({ onLeaveTable }) {
   // the same "whose turn" from the same two values.
   const [prayerOrder, setPrayerOrder] = useState([])
   const [prayerTurnsCompleted, setPrayerTurnsCompleted] = useState(0)
+  const [absentMembers, setAbsentMembers] = useState([])
+  const [sessionId, setSessionId] = useState(null) // tonight's group_verse row id -- used to scope the realtime subscription below
+  const [markingAbsent, setMarkingAbsent] = useState(null) // member id currently being toggled, or null
   const [markingPrayer, setMarkingPrayer] = useState(false)
   const [discussed, setDiscussed] = useState(false)
   const [markingDiscussed, setMarkingDiscussed] = useState(false)
@@ -68,6 +71,39 @@ export default function TablePage({ onLeaveTable }) {
   useEffect(() => {
     loadVerse()
   }, [group?.id])
+
+  // Cross-device sync: without this, a device only ever sees the
+  // rotation state it had when the Table screen first loaded --
+  // another family member completing their turn on a different phone
+  // is invisible until this device is manually reloaded. group_verse
+  // is in the supabase_realtime publication (2026-08-08) specifically
+  // so this subscription can exist; RLS (group_verse_select_member)
+  // already restricts which rows this device is allowed to receive,
+  // so filtering by group_id here doesn't grant any new access.
+  useEffect(() => {
+    if (!group?.id) return
+    const channel = supabase
+      .channel(`group_verse:${group.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'group_verse', filter: `group_id=eq.${group.id}` },
+        (payload) => {
+          const row = payload.new
+          // Ignore updates for a different night's row (e.g. a stray
+          // event right at the 4am rollover) -- only apply changes to
+          // the exact session this screen already has loaded.
+          if (!row || (sessionId && row.id !== sessionId)) return
+          setPrayerOrder(row.prayer_order || [])
+          setPrayerTurnsCompleted(row.prayer_turns_completed || 0)
+          setAbsentMembers(row.absent_members || [])
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [group?.id, sessionId])
 
   async function loadVerse() {
     // The render below already requires a group before showing any verse
@@ -113,6 +149,8 @@ export default function TablePage({ onLeaveTable }) {
       })
       setPrayerOrder(session.prayer_order || [])
       setPrayerTurnsCompleted(session.prayer_turns_completed || 0)
+      setAbsentMembers(session.absent_members || [])
+      setSessionId(session.session_id)
       track('verse_loaded', { verse_ref: session.verse_ref })
 
       const orderLen = (session.prayer_order || []).length
@@ -206,6 +244,34 @@ export default function TablePage({ onLeaveTable }) {
       showToast("That didn't save. Tap it again when you're ready.")
     }
     setMarkingPrayer(false)
+  }
+
+  async function toggleAbsent(memberId, currentlyAbsent) {
+    if (!group?.id || markingAbsent) return // prevent double submission
+    setMarkingAbsent(memberId)
+    try {
+      // set_member_absent() writes group_verse.absent_members for
+      // TONIGHT only -- it never touches prayer_order, so this can
+      // never cost anyone their long-term place in the rotation. If
+      // this lands on the current turn, the server auto-skips it
+      // immediately, so no one has to tap "We prayed together" just to
+      // get past someone who isn't here.
+      const { data, error } = await supabase.rpc('set_member_absent', {
+        group_id_input: group.id,
+        member_id_input: memberId,
+        absent: !currentlyAbsent
+      })
+      if (error) throw error
+      const result = data?.[0]
+      if (!result) throw new Error('No result')
+      setAbsentMembers(result.absent_members || [])
+      setPrayerTurnsCompleted(result.prayer_turns_completed || 0)
+      showToast(currentlyAbsent ? `${nameFor(memberId)} is back at the table. 🙏` : `${nameFor(memberId)} marked Not Here for tonight.`)
+    } catch (err) {
+      console.error('[table:toggleAbsent]', err?.message)
+      showToast("That didn't save. Try again.")
+    }
+    setMarkingAbsent(null)
   }
 
   async function saveNote() {
@@ -356,18 +422,40 @@ export default function TablePage({ onLeaveTable }) {
             </button>
           )}
         </div>
+        {members.length > 0 && memberProfiles && memberProfiles.length > 0 && (
+          <p style={{ fontSize: '11px', color: 'var(--silver)', opacity: 0.65, marginBottom: '0.5rem', fontStyle: 'italic' }}>
+            Tap a name to mark them Not Here for tonight.
+          </p>
+        )}
         {members.length > 0 ? (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {(memberProfiles && memberProfiles.length > 0 ? memberProfiles : members.map(m => ({ id: m, name: m }))).map(p => (
-              <span key={p.id} style={{
-                fontSize: '12px',
-                color: 'var(--cream)',
-                background: p.id === currentPrayerId && !allPrayed ? 'var(--gold-soft)' : 'var(--bg4)',
-                border: `0.5px solid ${p.id === currentPrayerId && !allPrayed ? 'var(--border-gold)' : 'var(--border)'}`,
-                borderRadius: 999,
-                padding: '4px 12px'
-              }}>
-                {p.name}
+            {memberProfiles && memberProfiles.length > 0 ? memberProfiles.map(p => {
+              const isAbsent = absentMembers.includes(p.id)
+              const isCurrent = p.id === currentPrayerId && !allPrayed && !isAbsent
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => toggleAbsent(p.id, isAbsent)}
+                  disabled={markingAbsent === p.id}
+                  title={isAbsent ? 'Tap to mark present' : 'Tap to mark Not Here for tonight'}
+                  style={{
+                    fontSize: '12px',
+                    color: isAbsent ? 'var(--silver)' : 'var(--cream)',
+                    background: isCurrent ? 'var(--gold-soft)' : isAbsent ? 'var(--bg3)' : 'var(--bg4)',
+                    border: `0.5px solid ${isCurrent ? 'var(--border-gold)' : 'var(--border)'}`,
+                    borderRadius: 999,
+                    padding: '4px 12px',
+                    opacity: isAbsent ? 0.55 : (markingAbsent === p.id ? 0.6 : 1),
+                    cursor: 'pointer',
+                    textDecoration: isAbsent ? 'line-through' : 'none'
+                  }}
+                >
+                  {p.name}{isAbsent ? ' · Not Here' : ''}
+                </button>
+              )
+            }) : members.map(m => (
+              <span key={m} style={{ fontSize: '12px', color: 'var(--cream)', background: 'var(--bg4)', border: '0.5px solid var(--border)', borderRadius: 999, padding: '4px 12px' }}>
+                {m}
               </span>
             ))}
           </div>
