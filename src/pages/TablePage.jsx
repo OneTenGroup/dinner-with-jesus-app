@@ -24,6 +24,24 @@ function isChurchCTAEligible() {
   }
 }
 
+// Mirrors public.resolve_current_turn_index() in
+// 20260809000001_stateless_prayer_turn_resolution.sql exactly. Every
+// direct RPC response (loadVerse, nextPrayer, toggleAbsent) uses the
+// server's OWN resolved current/next-turn values instead of this --
+// Realtime's postgres_changes payload only carries the raw row
+// (prayer_order/absent_members/prayer_turns_completed), not those
+// server-computed fields, so this exists solely to interpret an
+// incoming Realtime update the same way the server would.
+function resolveCurrentTurnIndex(prayerOrder, absentMembers, completed) {
+  const len = prayerOrder.length
+  let i = completed
+  while (i < len) {
+    if (!absentMembers.includes(prayerOrder[i])) return i
+    i += 1
+  }
+  return null
+}
+
 const BLESSINGS = [
   "Go now — and carry what happened at this table into the rest of your night. I'll be here tomorrow. Same time. Same table. Don't be late. 🙏",
   "You showed up. That matters more than you know. The conversation you just had — I was in the middle of it. See you tomorrow. 🙏",
@@ -55,6 +73,19 @@ export default function TablePage({ onLeaveTable }) {
   const [prayerOrder, setPrayerOrder] = useState([])
   const [prayerTurnsCompleted, setPrayerTurnsCompleted] = useState(0)
   const [absentMembers, setAbsentMembers] = useState([])
+  // currentPrayerId / nextPrayerId / allPrayed are ALWAYS taken directly
+  // from what the server returns (get_or_create_tonight_session /
+  // complete_prayer_turn / set_member_absent all resolve and return
+  // these) -- never derived client-side from prayerOrder/prayerTurnsCompleted
+  // directly. That client-side derivation was the root cause of a real
+  // bug: it couldn't tell "everyone genuinely prayed" apart from "no one
+  // is currently present," and defaulted to showing "Your turn to pray"
+  // for both. The one exception is the Realtime handler below, which
+  // only receives raw row data and has to mirror the server's own
+  // resolution logic (resolveCurrentTurnIndex) to interpret it.
+  const [currentPrayerId, setCurrentPrayerId] = useState(null)
+  const [nextPrayerId, setNextPrayerId] = useState(null)
+  const [allPrayed, setAllPrayed] = useState(false)
   const [sessionId, setSessionId] = useState(null) // tonight's group_verse row id -- used to scope the realtime subscription below
   const [markingAbsent, setMarkingAbsent] = useState(null) // member id currently being toggled, or null
   const [markingPrayer, setMarkingPrayer] = useState(false)
@@ -93,9 +124,17 @@ export default function TablePage({ onLeaveTable }) {
           // event right at the 4am rollover) -- only apply changes to
           // the exact session this screen already has loaded.
           if (!row || (sessionId && row.id !== sessionId)) return
-          setPrayerOrder(row.prayer_order || [])
-          setPrayerTurnsCompleted(row.prayer_turns_completed || 0)
-          setAbsentMembers(row.absent_members || [])
+          const newOrder = row.prayer_order || []
+          const newAbsent = row.absent_members || []
+          const newCompleted = row.prayer_turns_completed || 0
+          setPrayerOrder(newOrder)
+          setPrayerTurnsCompleted(newCompleted)
+          setAbsentMembers(newAbsent)
+          const curIdx = resolveCurrentTurnIndex(newOrder, newAbsent, newCompleted)
+          const nextIdx = curIdx === null ? null : resolveCurrentTurnIndex(newOrder, newAbsent, curIdx + 1)
+          setCurrentPrayerId(curIdx === null ? null : newOrder[curIdx])
+          setNextPrayerId(nextIdx === null ? null : newOrder[nextIdx])
+          setAllPrayed(newCompleted >= newOrder.length)
         }
       )
       .subscribe()
@@ -150,11 +189,17 @@ export default function TablePage({ onLeaveTable }) {
       setPrayerOrder(session.prayer_order || [])
       setPrayerTurnsCompleted(session.prayer_turns_completed || 0)
       setAbsentMembers(session.absent_members || [])
+      // current_prayer_id / next_prayer_id / all_prayed are resolved
+      // server-side (see 20260809000001_stateless_prayer_turn_resolution.sql)
+      // -- always trust these directly rather than re-deriving from
+      // prayer_order/prayer_turns_completed here.
+      setCurrentPrayerId(session.current_prayer_id || null)
+      setNextPrayerId(session.next_prayer_id || null)
+      setAllPrayed(!!session.all_prayed)
       setSessionId(session.session_id)
       track('verse_loaded', { verse_ref: session.verse_ref })
 
-      const orderLen = (session.prayer_order || []).length
-      if (orderLen > 0 && (session.prayer_turns_completed || 0) >= orderLen) {
+      if (session.all_prayed) {
         showToast("Your family already completed tonight's dinner. 🙏")
       }
 
@@ -214,16 +259,17 @@ export default function TablePage({ onLeaveTable }) {
   }
 
   async function nextPrayer() {
-    if (!group?.id || allPrayed || markingPrayer) return // prevent double submission
+    if (!group?.id || allPrayed || !currentPrayerId || markingPrayer) return // prevent double submission; nothing to complete if no one is currently present
     setMarkingPrayer(true)
     try {
       // complete_prayer_turn() is atomic and idempotent per turn (see
-      // 20260714000004_shared_dinner_session.sql) -- it only advances if
-      // expected_turns_completed still matches the shared row's current
-      // value. Two devices racing to complete the same turn will not
-      // double-advance and skip a person; the loser of the race simply
-      // gets back the already-advanced state.
-      const justPrayedId = prayerOrder[prayerTurnsCompleted]
+      // 20260714000004_shared_dinner_session.sql, updated
+      // 2026-08-09) -- it only advances if expected_turns_completed
+      // still matches the shared row's current value. Two devices
+      // racing to complete the same turn will not double-advance and
+      // skip a person; the loser of the race simply gets back the
+      // already-advanced, freshly-resolved state.
+      const justPrayedId = currentPrayerId
       const { data, error } = await supabase.rpc('complete_prayer_turn', {
         group_id_input: group.id,
         expected_turns_completed: prayerTurnsCompleted
@@ -232,12 +278,16 @@ export default function TablePage({ onLeaveTable }) {
       const result = data?.[0]
       if (!result) throw new Error('No result')
       setPrayerTurnsCompleted(result.prayer_turns_completed)
+      setCurrentPrayerId(result.current_prayer_id || null)
+      setNextPrayerId(result.next_prayer_id || null)
+      setAllPrayed(!!result.all_prayed)
       if (result.all_prayed) {
         track('prayer_completed', { member_count: prayerOrder.length })
         showToast('Everyone has prayed tonight. 🙏')
+      } else if (result.current_prayer_id) {
+        showToast(`${nameFor(justPrayedId)} prayed. ${nameFor(result.current_prayer_id)} is up next. 🙏`)
       } else {
-        const upNextId = prayerOrder[result.prayer_turns_completed]
-        showToast(`${nameFor(justPrayedId)} prayed. ${nameFor(upNextId)} is up next. 🙏`)
+        showToast(`${nameFor(justPrayedId)} prayed. No one else is currently marked present.`)
       }
     } catch (err) {
       console.error('[table:nextPrayer]', err?.message)
@@ -251,11 +301,15 @@ export default function TablePage({ onLeaveTable }) {
     setMarkingAbsent(memberId)
     try {
       // set_member_absent() writes group_verse.absent_members for
-      // TONIGHT only -- it never touches prayer_order, so this can
-      // never cost anyone their long-term place in the rotation. If
-      // this lands on the current turn, the server auto-skips it
-      // immediately, so no one has to tap "We prayed together" just to
-      // get past someone who isn't here.
+      // TONIGHT only -- it never touches prayer_order or
+      // prayer_turns_completed (2026-08-09), so this can never cost
+      // anyone their long-term place in the rotation and can never by
+      // itself complete tonight's dinner or consume a rotation turn.
+      // current_prayer_id is resolved fresh server-side from the
+      // permanent rotation + current attendance -- it correctly
+      // becomes null (not any particular person) if no one remains
+      // present, and correctly resolves to whoever the rotation says
+      // is next the moment someone is marked present again.
       const { data, error } = await supabase.rpc('set_member_absent', {
         group_id_input: group.id,
         member_id_input: memberId,
@@ -265,7 +319,9 @@ export default function TablePage({ onLeaveTable }) {
       const result = data?.[0]
       if (!result) throw new Error('No result')
       setAbsentMembers(result.absent_members || [])
-      setPrayerTurnsCompleted(result.prayer_turns_completed || 0)
+      setCurrentPrayerId(result.current_prayer_id || null)
+      setNextPrayerId(result.next_prayer_id || null)
+      setAllPrayed(!!result.all_prayed)
       showToast(currentlyAbsent ? `${nameFor(memberId)} is back at the table. 🙏` : `${nameFor(memberId)} marked Not Here for tonight.`)
     } catch (err) {
       console.error('[table:toggleAbsent]', err?.message)
@@ -343,13 +399,13 @@ export default function TablePage({ onLeaveTable }) {
     setTimeout(() => setToast(''), 3000)
   }
 
-  // Derived entirely from the shared prayerOrder/prayerTurnsCompleted --
-  // never from local state -- so every device renders the same person.
-  const allPrayed = prayerOrder.length > 0 && prayerTurnsCompleted >= prayerOrder.length
-  const currentPrayerId = prayerOrder.length > 0 && !allPrayed ? prayerOrder[prayerTurnsCompleted] : null
-  const nextPrayerId = prayerOrder.length > 1 && prayerTurnsCompleted + 1 < prayerOrder.length ? prayerOrder[prayerTurnsCompleted + 1] : null
+  // currentPrayerId / nextPrayerId / allPrayed are STATE (set from the
+  // server's own resolved values -- see loadVerse/nextPrayer/toggleAbsent
+  // above), never re-derived here. Only the name lookups happen at
+  // render time.
   const currentPrayer = currentPrayerId ? nameFor(currentPrayerId) : null
   const nextMember = nextPrayerId ? nameFor(nextPrayerId) : null
+  const nobodyPresent = !allPrayed && !currentPrayerId
 
   const goldAccent = { position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: 'linear-gradient(90deg, var(--gold), transparent)' }
   // cardBase: the Verse -> Conversation -> Prayer sequence itself --
@@ -515,12 +571,18 @@ export default function TablePage({ onLeaveTable }) {
           <span style={{ ...sectionTitle, marginBottom: 0 }}>Prayer</span>
           {allPrayed ? (
             <span style={{ fontSize: '11px', color: 'var(--gold)', background: 'var(--gold-soft)', padding: '2px 10px', borderRadius: 999 }}>Everyone prayed 🙏</span>
+          ) : nobodyPresent ? (
+            <span style={{ fontSize: '11px', color: 'var(--silver)', background: 'var(--bg3)', padding: '2px 10px', borderRadius: 999 }}>No one present</span>
           ) : nextMember ? (
             <span style={{ fontSize: '11px', color: 'var(--gold)', background: 'var(--gold-soft)', padding: '2px 10px', borderRadius: 999 }}>Next: {nextMember}</span>
           ) : null}
         </div>
         <p style={{ fontFamily: 'Lora, serif', fontSize: '0.95rem', color: 'var(--white)', marginBottom: '0.35rem' }}>
-          {currentPrayer ? `${currentPrayer}'s turn to pray` : 'Your turn to pray'}
+          {allPrayed
+            ? "Tonight's prayers are complete."
+            : currentPrayer
+              ? `${currentPrayer}'s turn to pray`
+              : 'No one is currently marked present.'}
         </p>
         <div style={{ background: 'var(--bg3)', borderRadius: 10, padding: '1.1rem', marginBottom: '0.875rem', border: '0.5px solid var(--border)' }}>
           <p style={{ fontFamily: 'Lora, serif', fontSize: '15px', fontStyle: 'italic', color: 'var(--cream)', lineHeight: 1.85 }}>
@@ -529,8 +591,8 @@ export default function TablePage({ onLeaveTable }) {
           <p style={{ fontSize: '11px', color: 'var(--silver)', textAlign: 'right', marginTop: '0.5rem' }}>— Amen 🙏</p>
         </div>
         <div className="btn-row">
-          <button className="btn btn-green" onClick={nextPrayer} disabled={allPrayed} style={{ opacity: allPrayed ? 0.6 : 1 }}>
-            {allPrayed ? '🙏 All prayed' : '✓ We prayed together'}
+          <button className="btn btn-green" onClick={nextPrayer} disabled={allPrayed || !currentPrayerId} style={{ opacity: (allPrayed || !currentPrayerId) ? 0.6 : 1 }}>
+            {allPrayed ? '🙏 All prayed' : !currentPrayerId ? 'No one present' : '✓ We prayed together'}
           </button>
           <button className="btn" onClick={() => setShowPrayerOverlay(true)}>📖 Full prayer</button>
         </div>
