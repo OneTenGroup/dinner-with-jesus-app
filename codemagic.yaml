@@ -64,6 +64,37 @@ workflows:
                       output.write(f"{key}={value}\n")
           PY
 
+      # Build-number handling: CURRENT_PROJECT_VERSION in
+      # ios/App/App.xcodeproj/project.pbxproj is currently set and bumped
+      # manually (2026-09-08: 1 -> 2, after an
+      # ENTITY_ERROR.ATTRIBUTE.INVALID.DUPLICATE rejection from App Store
+      # Connect for reusing build number 1). The step below safely
+      # automates this going forward, but is OPT-IN and inert until
+      # APP_STORE_APPLE_ID is configured -- it was left unset here
+      # deliberately rather than guessed, since a wrong value would fail
+      # the App Store Connect API call, not just skip it.
+      #
+      # To activate: in Codemagic, add APP_STORE_APPLE_ID as an
+      # environment variable (ideally in the apple_credentials_bundle
+      # group above) set to this app's numeric Apple ID -- found in App
+      # Store Connect under the app's General > App Information page
+      # (labeled "Apple ID", a 10-digit number, NOT the bundle ID). No
+      # further code change is needed once that's set; this step will
+      # start running automatically on the next build.
+      - name: Increment build number from App Store Connect (opt-in, see comment above)
+        script: |
+          set -euo pipefail
+          if [ -z "${APP_STORE_APPLE_ID:-}" ]; then
+            echo "APP_STORE_APPLE_ID not set -- skipping automatic build-number increment."
+            echo "CURRENT_PROJECT_VERSION stays at whatever is committed in project.pbxproj."
+          else
+            LATEST_BUILD_NUMBER=$(app-store-connect get-latest-build-number "$APP_STORE_APPLE_ID" --platform IOS --all-versions)
+            NEW_BUILD_NUMBER=$((LATEST_BUILD_NUMBER + 1))
+            echo "Latest build number known to App Store Connect/TestFlight: $LATEST_BUILD_NUMBER -- setting CURRENT_PROJECT_VERSION to $NEW_BUILD_NUMBER"
+            cd ios/App
+            agvtool new-version -all "$NEW_BUILD_NUMBER"
+          fi
+
       - name: Initialize keychain
         script: keychain initialize
 
