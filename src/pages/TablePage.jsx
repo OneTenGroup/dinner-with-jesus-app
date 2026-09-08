@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext'
 import { useFamily } from '../hooks/useFamily'
 import { supabase } from '../lib/supabase'
 import { track } from '../lib/analytics'
+import { resolveCurrentTurn } from '../lib/prayerRotation'
 import ChurchCTA from '../components/ChurchCTA'
 
 // Church/group CTA eligibility: local-only, no backend. Never shown
@@ -22,23 +23,6 @@ function isChurchCTAEligible() {
   } catch {
     return false // localStorage unavailable (private browsing, etc.) -- never obstruct the exit path
   }
-}
-
-// Mirrors public.resolve_current_turn() in
-// 20260809000003_individual_prayed_members_tracking.sql exactly. Every
-// direct RPC response (loadVerse, nextPrayer, toggleAbsent) uses the
-// server's OWN resolved current/next-turn values instead of this --
-// Realtime's postgres_changes payload only carries the raw row
-// (prayer_order/absent_members/prayed_members/rotation_advanced), not
-// those server-computed fields, so this exists solely to interpret an
-// incoming Realtime update the same way the server would. Identity-based
-// (who's in prayed_members/absent_members), never a scalar position --
-// that's what makes a returning absent member resolve correctly here too.
-function resolveCurrentTurn(prayerOrder, absentMembers, prayedMembers) {
-  for (const id of prayerOrder) {
-    if (!prayedMembers.includes(id) && !absentMembers.includes(id)) return id
-  }
-  return null
 }
 
 const BLESSINGS = [
