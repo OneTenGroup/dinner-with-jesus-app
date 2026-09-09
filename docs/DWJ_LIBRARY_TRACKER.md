@@ -4,6 +4,8 @@
 
 **New library target:** up to 365 excellent, active, unique dinners — a genuine ceiling for a year without repeating, not a quota. Quality overrides quantity: if the library naturally finishes short of 365 because there isn't another genuinely excellent, non-duplicate dinner left to write, that's the correct outcome.
 
+**FINAL CANONICAL COUNT — LOCKED: 354 unique active dinners.** Content generation is complete as of Batch 08 and the global audit. No further dinners will be created to reach 365. See "Final canonical count" below for the full reconciliation.
+
 ---
 
 ## How the count works
@@ -58,13 +60,46 @@
 | 350 | 69 |
 | 365 | 84 |
 
+## After Batch 08 (Final Gap Fill, 75 new dinners, 0 upgrades)
+
+**Projected unique active total: 281 + 75 = 356.**
+
+This clears 340 by 16 and 350 by 6, and sits 9 short of the ideal 365 ceiling. Batch 08 was built almost entirely from the 300-map's own previously-undrafted clusters (Pride, Patience, Leadership, Doubt, Prayer, Trusting God, Discipleship, Obedience, and the "additional important themes" cluster, plus remaining entries in partially-used clusters) rather than invented territory — four map-planned passages were deliberately dropped as too thin or too dependent on missing context to draft well (see the batch's own header for detail), consistent with not padding the count.
+
+| Target | Additional dinners still needed after Batch 08 (superseded, see below) |
+|---|---|
+| 340 | met (16 over) |
+| 350 | met (6 over) |
+| 365 | 9 |
+
+## Final canonical count — LOCKED at 354
+
+The global audit (`docs/DWJ_356_GLOBAL_AUDIT.md`) ran a programmatic overlap check across the entire projected library and found two additional collisions that the 356 figure above did not account for — neither was caught during drafting or by any single batch's own duplication check, because each involves a short existing verse expanded into its fuller unit by a later batch, the same pattern already accepted for five other passages.
+
+**Both are now confirmed as intentional upgrades/replacements, on the same footing as the original five:**
+
+| Existing (replaced) | Replacement | Status |
+|---|---|---|
+| 2 Corinthians 5:7 (Faith) | Batch 08, "2 Corinthians 5:1, 6-8" | **Confirmed intentional upgrade/replacement.** |
+| Luke 12:15 (Wisdom) | Batch 07, "Luke 12:13-15" | **Confirmed intentional upgrade/replacement.** |
+
+**Total upgrades/replacements: 7** (5 from Batch 01, 2 newly confirmed above). **Total genuinely new dinners across Batches 01-08: 235** (242 total batch dinners − 7 upgrades).
+
+**Final reconciliation: 119 (original active) − 7 (replaced originals) + 235 (genuinely new) + 7 (replacement versions, embedded in the 242 batch dinners) = 354.**
+
+**354 is the locked, final canonical projected library.** Content generation is complete. No further dinners will be drafted to close the gap to 365 — that gap (11 dinners) is an accepted, deliberate outcome of "quality overrides quantity," not an open task.
+
 ---
 
-## Maintenance note for future batches
+## Historical notes (content-generation phase, now closed)
 
-Update the table below after every batch closes. Check new passages against the full existing-119 list specifically (not only against other batches and the 300-map) before drafting — Batch 06 found two map-planned passages that turned out to already be active in the original 119, a check that needs to happen at selection time, not after.
+Preserved for context; no further batches are planned. Check new passages against the full existing-119 list specifically (not only against other batches and the 300-map) before drafting — Batch 06 found two map-planned passages that turned out to already be active in the original 119, and the global audit found two more collisions of the same kind after Batches 07-08, confirming this check needs to happen at selection time, every time, not as a one-off.
+
+**Batch 08 also surfaced a lesson worth keeping on record:** at 75 dinners, a single drafting pass produced 52 "Is there...?" Go Deeper questions and 25 "What's the difference between X and Y" Push Further questions out of 75 — a severity of repetition not seen at the 20-dinner batch scale. The larger the batch, the more a single default construction compounds; the full-batch pattern audit caught and fixed both (down to 12 and 10 respectively) before finalizing.
 
 | Through batch | Total dinners drafted | Cumulative upgrades | Cumulative new | Projected unique active total |
 |---|---|---|---|---|
 | 06 | 120 | 5 | 115 | 234 |
 | 07 | 167 | 5 | 162 | 281 |
+| 08 | 242 | 5 | 237 | 356 (superseded) |
+| **Final (global audit)** | **242** | **7** | **235** | **354 — LOCKED** |
