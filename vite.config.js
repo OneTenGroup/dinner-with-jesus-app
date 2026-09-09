@@ -44,6 +44,10 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webp}'],
+        // The public marketing homepage is served by Vercel as
+        // landing.html. Keep the app shell fallback from intercepting /
+        // for browsers that have already installed the app service worker.
+        navigateFallbackDenylist: [/^\/$/],
         cleanupOutdatedCaches: true,
         skipWaiting: true,
         clientsClaim: true
