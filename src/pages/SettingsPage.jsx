@@ -786,8 +786,26 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
         <div style={{ fontSize: '10px', color: 'var(--silver)', opacity: 0.4, marginTop: '0.375rem' }}>App version: {typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'unknown'}</div>
         <div style={{ height: '0.5px', background: 'var(--border)', margin: '0.875rem 0' }} />
         <div style={{ display: 'flex', gap: 16, justifyContent: 'center' }}>
-          <a href="/privacy-policy" target="_blank" rel="noreferrer" style={{ fontSize: '11px', color: 'var(--gold)', textDecoration: 'underline', textUnderlineOffset: '3px' }}>Privacy Policy</a>
-          <a href="/terms-of-service" target="_blank" rel="noreferrer" style={{ fontSize: '11px', color: 'var(--gold)', textDecoration: 'underline', textUnderlineOffset: '3px' }}>Terms of Service</a>
+          {/* Absolute URLs, deliberately -- not relative paths. Two
+              independent reasons: (1) nativeBridge.js's
+              installExternalLinkHandler only intercepts links matching
+              /^https?:\/\//, specifically so Privacy Policy/Terms open in
+              an in-app Safari view inside the native iOS shell (see that
+              file's own comment, which already names these two pages as
+              the reason the handler exists) -- a relative href never
+              matched that check, so native taps silently fell through to
+              default WKWebView anchor handling. (2) The bundled native
+              app has no Vercel rewrite layer (capacitor.config.json has
+              no server.url -- it serves the local dist/ build directly),
+              so even where a relative tap did navigate, "/privacy-policy"
+              (no .html) only resolves on the live Vercel deployment's
+              rewrite rule, never inside the local bundle -- it fell
+              through to the SPA's own index.html shell instead, which
+              has no route for it and rendered blank. An absolute URL
+              fixes both: it's always fetched from the real, live,
+              rewrite-capable server, on every platform. */}
+          <a href="https://flippingtables.ai/privacy-policy" target="_blank" rel="noreferrer" style={{ fontSize: '11px', color: 'var(--gold)', textDecoration: 'underline', textUnderlineOffset: '3px' }}>Privacy Policy</a>
+          <a href="https://flippingtables.ai/terms-of-service" target="_blank" rel="noreferrer" style={{ fontSize: '11px', color: 'var(--gold)', textDecoration: 'underline', textUnderlineOffset: '3px' }}>Terms of Service</a>
         </div>
       </div>
 
