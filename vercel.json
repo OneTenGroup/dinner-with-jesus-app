@@ -14,6 +14,8 @@
     { "src": "/assets/(.*)", "dest": "/assets/$1" },
     { "src": "/jesus-at-table.png", "dest": "/jesus-at-table.png" },
     { "src": "/jesus-welcome.png", "dest": "/jesus-welcome.png" },
+    { "src": "/dwj-qr.png", "dest": "/dwj-qr.png", "headers": { "Cache-Control": "public, max-age=86400" } },
+    { "src": "/dwj-qr.svg", "dest": "/dwj-qr.svg", "headers": { "Cache-Control": "public, max-age=86400", "Content-Type": "image/svg+xml" } },
     { "src": "/favicon.png", "dest": "/favicon.png" },
     { "src": "/manifest.json", "dest": "/manifest.json" },
     { "src": "/.well-known/assetlinks.json", "dest": "/.well-known/assetlinks.json", "headers": { "Content-Type": "application/json" } },
