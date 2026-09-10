@@ -62,6 +62,33 @@ class FakeGroupVerseDb {
 
   addMember(id) {
     this.members.push(id)
+    for (const row of this.sessions.values()) this.reconcileMembership(row)
+  }
+
+  removeMember(id) {
+    this.members = this.members.filter((member) => member !== id)
+    if (this.groups.next_prayer_user_id === id) {
+      this.groups.next_prayer_user_id = this.members[0] || null
+    }
+    for (const row of this.sessions.values()) this.reconcileMembership(row)
+  }
+
+  reconcileMembership(row) {
+    if (row.rotation_advanced) return
+    row.prayer_order = row.prayer_order.filter((id) => this.members.includes(id))
+    for (const id of this.members) {
+      if (!row.prayer_order.includes(id)) row.prayer_order.push(id)
+    }
+    row.absent_members = row.absent_members.filter((id) => this.members.includes(id))
+    row.prayed_members = row.prayed_members.filter((id) => this.members.includes(id))
+
+    const cur = resolveCurrentTurn(row.prayer_order, row.absent_members, row.prayed_members)
+    if (cur === null && row.prayed_members.length > 0 && row.prayer_order.length > 0) {
+      row.rotation_advanced = true
+      this.groups.next_prayer_user_id = row.prayer_order.length === 1
+        ? row.prayer_order[0]
+        : row.prayer_order[1]
+    }
   }
 
   getOrCreateTonightSession(date) {
@@ -225,6 +252,52 @@ describe('prayer rotation state machine (mirrors the live SQL contract)', () => 
     db.addMember(D)
     const s = db.getOrCreateTonightSession(date)
     expect(s.prayer_order).toContain(D)
+  })
+
+  it('removes a departed member from an unfinished live prayer order immediately', () => {
+    const [A, B, C] = ['A', 'B', 'C']
+    const db = new FakeGroupVerseDb([A, B, C])
+    const date = 'night'
+    db.getOrCreateTonightSession(date)
+    expect(db.completePrayerTurn(date, A).current_prayer_id).toBe(B)
+
+    db.removeMember(B)
+    const session = db.getOrCreateTonightSession(date)
+    expect(session.prayer_order).toEqual([A, C])
+    expect(session.current_prayer_id).toBe(C)
+    expect(session.next_prayer_id).toBeNull()
+  })
+
+  it('never leaves a phantom next turn when a not-yet-prayed member is removed', () => {
+    const [A, B] = ['A', 'B']
+    const db = new FakeGroupVerseDb([A, B])
+    const date = 'night'
+    db.getOrCreateTonightSession(date)
+    db.removeMember(B)
+
+    const before = db.getOrCreateTonightSession(date)
+    expect(before.current_prayer_id).toBe(A)
+    expect(before.next_prayer_id).toBeNull()
+    expect(before.all_prayed).toBe(false)
+
+    const completed = db.completePrayerTurn(date, A)
+    expect(completed.all_prayed).toBe(true)
+    expect(db.groups.next_prayer_user_id).toBe(A)
+  })
+
+  it('does not rewrite or reopen a completed dinner when membership changes later', () => {
+    const [A, B, C] = ['A', 'B', 'C']
+    const db = new FakeGroupVerseDb([A, B])
+    const date = 'night'
+    db.getOrCreateTonightSession(date)
+    db.completePrayerTurn(date, A)
+    db.completePrayerTurn(date, B)
+    const completedBeforeChange = structuredClone(db.sessions.get(date))
+
+    db.removeMember(B)
+    db.addMember(C)
+
+    expect(db.sessions.get(date)).toEqual(completedBeforeChange)
   })
 
   it('does not let a genuinely skipped (never-opened-to-completion) night consume the next starter\'s turn', () => {
