@@ -47,7 +47,7 @@ export default defineConfig({
         // The public marketing homepage is served by Vercel as
         // landing.html. Keep the app shell fallback from intercepting /
         // for browsers that have already installed the app service worker.
-        navigateFallbackDenylist: [/^\/$/],
+        navigateFallbackDenylist: [/^\/$/, /^\/how-to\/?$/, /^\/howto\/?$/],
         cleanupOutdatedCaches: true,
         skipWaiting: true,
         clientsClaim: true

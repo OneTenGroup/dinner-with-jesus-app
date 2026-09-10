@@ -743,6 +743,18 @@ export default function SettingsPage({ isAdmin = false, onOpenAdmin }) {
         </div>
       )}
 
+      {/* Setup video — public help that works before or after onboarding */}
+      <span className="section-label">Help</span>
+      <div className="card" style={{ marginBottom: '1.5rem', textAlign: 'center' }}>
+        <div style={{ fontSize: '14px', color: 'var(--cream)', marginBottom: 4 }}>Need a hand setting your table?</div>
+        <p style={{ fontSize: '12px', color: 'var(--silver)', lineHeight: 1.6, marginBottom: '0.875rem' }}>
+          Watch the one-minute guide to creating a Dinner Circle, sharing your code, and managing members.
+        </p>
+        <a href="https://flippingtables.ai/how-to" target="_blank" rel="noreferrer" className="btn btn-gold" style={{ display: 'block', textDecoration: 'none' }}>
+          ▶ Watch the setup video
+        </a>
+      </div>
+
       {/* Faith Level */}
       <span className="section-label">Faith Journey</span>
       <div style={{ marginBottom: '1.5rem' }}>

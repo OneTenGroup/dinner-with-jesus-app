@@ -96,7 +96,8 @@ export function installExternalLinkHandler() {
       const isMailto = href.startsWith('mailto:')
       const isExternalHttp = /^https?:\/\//i.test(href) &&
         !href.includes('flippingtables.ai')
-      if (!isMailto && !isExternalHttp) return
+      const isPublicHelpPage = /^https?:\/\/(?:www\.)?flippingtables\.ai\/(?:how-to|howto)(?:[/?#]|$)/i.test(href)
+      if (!isMailto && !isExternalHttp && !isPublicHelpPage) return
       event.preventDefault()
       if (isMailto) {
         window.location.href = href
