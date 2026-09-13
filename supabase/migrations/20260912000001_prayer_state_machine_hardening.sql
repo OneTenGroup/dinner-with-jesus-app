@@ -1399,15 +1399,33 @@ commit;
 -- 3. No completed dinner was rewritten by the repair pass:
 --      select count(*) from public.group_verse
 --      where rotation_advanced = true
---        and prayer_turns_completed <> coalesce(array_length(prayed_members,1),0);
+--        and prayer_turns_completed <> coalesce(array_length(prayed_members,1),0)
+--        and verse_date >= '2026-08-09';
 --    Must be 0.
--- 4. No live dinner has an unnameable member stranded in its roster:
+--    The verse_date floor is required, NOT a convenience. Dinners from
+--    before 2026-08-09 pre-date prayed_members entirely: they carry the
+--    old scalar prayer_turns_completed with an empty prayed_members, so
+--    they mismatch by construction and always will. Production had 6
+--    such rows when this migration was applied (2026-07-27 through
+--    2026-08-08, all rotation_advanced). They are historical, are never
+--    re-read for rotation, and nothing in this package touches them.
+-- 4. No dinner being played TONIGHT has an unnameable member stranded
+--    in its roster:
 --      select gv.id, gv.group_id
 --      from public.group_verse gv
+--      join public.groups g on g.id = gv.group_id
 --      where gv.rotation_advanced = false
+--        and gv.verse_date = public.canonical_dinner_date(
+--              coalesce(g.timezone, 'America/Chicago'))
 --        and exists (
 --          select 1 from unnest(gv.prayer_order) as m
 --          where m not in (select id from public.profiles where group_id = gv.group_id)
 --        );
 --    Must be empty.
+--    Restricting to tonight is also required. reconcile_current_prayer_
+--    session() only ever repairs the CURRENT dinner, by design -- an
+--    abandoned unfinished night from weeks ago is history, and
+--    rewriting it would be rewriting history. Production had 1 such
+--    abandoned row when this was applied (2026-07-16, zero prayers);
+--    it can never be loaded again, because a new day creates a new row.
 
