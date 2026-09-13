@@ -1,9 +1,16 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useFamily } from '../hooks/useFamily'
 import { supabase } from '../lib/supabase'
 import { track } from '../lib/analytics'
-import { resolveCurrentTurn } from '../lib/prayerRotation'
+import {
+  createPrayerCoordinator,
+  createPrayerChannel,
+  memberPrayerState,
+  describeOutcome,
+  PRAYER_STATE,
+  OUTCOME
+} from '../lib/prayerSession'
 import ChurchCTA from '../components/ChurchCTA'
 
 // Church/group CTA eligibility: local-only, no backend. Never shown
@@ -49,28 +56,14 @@ export default function TablePage({ onLeaveTable }) {
   const [blessing, setBlessing] = useState('')
   const [showChurchCTA, setShowChurchCTA] = useState(false)
   const [showPrayerOverlay, setShowPrayerOverlay] = useState(false)
-  // prayerOrder is the permanent fairness order; prayerTurnsCompleted is
-  // now a purely derived display count (array_length of prayed_members,
-  // 2026-08-09) that no control-flow logic here reads. Both come from
-  // the shared group_verse row (via get_or_create_tonight_session /
-  // complete_prayer_turn) -- never generated or advanced locally.
-  const [prayerOrder, setPrayerOrder] = useState([])
-  const [prayerTurnsCompleted, setPrayerTurnsCompleted] = useState(0)
-  const [absentMembers, setAbsentMembers] = useState([])
-  // currentPrayerId / nextPrayerId / allPrayed are ALWAYS taken directly
-  // from what the server returns (get_or_create_tonight_session /
-  // complete_prayer_turn / set_member_absent all resolve and return
-  // these) -- never derived client-side from prayerOrder/prayerTurnsCompleted
-  // directly. That client-side derivation was the root cause of a real
-  // bug: it couldn't tell "everyone genuinely prayed" apart from "no one
-  // is currently present," and defaulted to showing "Your turn to pray"
-  // for both. The one exception is the Realtime handler below, which
-  // only receives raw row data and has to mirror the server's own
-  // resolution logic (resolveCurrentTurn) to interpret it.
-  const [currentPrayerId, setCurrentPrayerId] = useState(null)
-  const [nextPrayerId, setNextPrayerId] = useState(null)
-  const [allPrayed, setAllPrayed] = useState(false)
-  const [sessionId, setSessionId] = useState(null) // tonight's group_verse row id -- used to scope the realtime subscription below
+  // ONE piece of prayer state, always the whole authoritative picture:
+  // the frozen roster plus the three identity sets (prayed / passed /
+  // absent) and the server's own derived current/next/all_prayed. It is
+  // only ever replaced wholesale by something authoritative -- a
+  // coordinator result, a resync, or a Realtime row interpreted with
+  // the server's own rules. Nothing in this component derives whose
+  // turn it is, and nothing mutates a single field in isolation.
+  const [prayerState, setPrayerState] = useState(null)
   const [markingAbsent, setMarkingAbsent] = useState(null) // member id currently being toggled, or null
   const [markingPrayer, setMarkingPrayer] = useState(false)
   const [discussed, setDiscussed] = useState(false)
@@ -83,62 +76,113 @@ export default function TablePage({ onLeaveTable }) {
   const nameById = new Map((memberProfiles || []).map(p => [p.id, p.name]))
   const nameFor = id => nameById.get(id) || 'Someone'
 
+  // The coordinator enforces mutate -> authoritative re-read -> confirm
+  // for every prayer action, so this component can never announce a
+  // turn the database refused. Rebuilt only when the table changes.
+  const coordinator = useMemo(
+    () => group?.id
+      ? createPrayerCoordinator({
+          rpc: (name, args) => supabase.rpc(name, args),
+          groupId: group.id
+        })
+      : null,
+    [group?.id]
+  )
+
+  // Tonight's session id, held in a ref rather than state so that it
+  // changing can never re-run the subscription effect below.
+  const sessionIdRef = useRef(null)
+
   useEffect(() => {
     loadVerse()
   }, [group?.id])
 
-  // Cross-device sync: without this, a device only ever sees the
-  // rotation state it had when the Table screen first loaded --
-  // another family member completing their turn on a different phone
-  // is invisible until this device is manually reloaded. group_verse
-  // is in the supabase_realtime publication (2026-08-08) specifically
-  // so this subscription can exist; RLS (group_verse_select_member)
-  // already restricts which rows this device is allowed to receive,
-  // so filtering by group_id here doesn't grant any new access.
+  // Authoritative resync. This is the safety net the whole screen rests
+  // on: whenever Realtime cannot be trusted -- channel error, timeout,
+  // closed socket, or simply a phone that was locked between two
+  // prayers -- correctness comes from re-reading the database, not from
+  // hoping the channel recovers. Deliberately NOT polled; it runs only
+  // on a real signal.
+  const resyncing = useRef(false)
+  async function resyncPrayerState() {
+    if (!coordinator || resyncing.current) return
+    resyncing.current = true
+    try {
+      const state = await coordinator.resync()
+      if (!state.sessionExists) {
+        // The dinner row is gone or has rolled over to a new day; only
+        // loadVerse() may create/choose a session, and it also
+        // refreshes the verse content this screen is showing.
+        await loadVerse()
+        return
+      }
+      sessionIdRef.current = state.sessionId
+      setPrayerState(state)
+    } catch (err) {
+      // A failed resync leaves the last known state on screen rather
+      // than blanking the table mid-dinner. The next signal retries.
+      console.error('[table:resync]', err?.message)
+    } finally {
+      resyncing.current = false
+    }
+  }
+
+  // Cross-device sync. Without this a device only ever sees the state it
+  // had when the Table screen loaded, and another phone completing a
+  // turn is invisible. group_verse is in the supabase_realtime
+  // publication (2026-08-08) specifically so this can exist; RLS
+  // (group_verse_select_member) already limits which rows arrive, so
+  // filtering by group_id grants no new access.
+  //
+  // Keyed on group.id ALONE. The previous version also keyed on
+  // sessionId, so when sessionId went null -> value it tore down and
+  // re-created a channel with the identical topic in one tick -- and an
+  // in-flight leave could kill the fresh join while .subscribe()
+  // reported success, leaving that device permanently deaf for the
+  // night. createPrayerChannel() also gives each instance a unique
+  // topic, so even an unexpected double-mount cannot collide.
+  useEffect(() => {
+    if (!group?.id || !coordinator) return
+    const sub = createPrayerChannel({
+      supabase,
+      groupId: group.id,
+      onRow: row => {
+        // Ignore a different night's row (a stray event at the 4am
+        // rollover). Realtime is an optimisation: the payload carries
+        // only the raw row, interpreted with the server's own rules.
+        if (!row) return
+        if (sessionIdRef.current && row.id !== sessionIdRef.current) return
+        const state = coordinator.applyRealtimeRow(row)
+        if (state) setPrayerState(state)
+      },
+      onNeedsResync: () => { resyncPrayerState() }
+    })
+    return () => sub.unsubscribe()
+  }, [group?.id, coordinator])
+
+  // Phone locked and reopened, app backgrounded and foregrounded, or
+  // tab switched away and back -- all of which can silently drop the
+  // websocket mid-dinner. Re-read authoritative state once on return.
+  // visibilitychange covers the Capacitor iOS WebView too; focus covers
+  // platforms where it does not fire reliably.
   useEffect(() => {
     if (!group?.id) return
-    const channel = supabase
-      .channel(`group_verse:${group.id}`)
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'group_verse', filter: `group_id=eq.${group.id}` },
-        (payload) => {
-          const row = payload.new
-          // Ignore updates for a different night's row (e.g. a stray
-          // event right at the 4am rollover) -- only apply changes to
-          // the exact session this screen already has loaded.
-          if (!row || (sessionId && row.id !== sessionId)) return
-          const newOrder = row.prayer_order || []
-          const newAbsent = row.absent_members || []
-          const newPrayed = row.prayed_members || []
-          const newRotationAdvanced = !!row.rotation_advanced
-          setPrayerOrder(newOrder)
-          setPrayerTurnsCompleted(row.prayer_turns_completed || 0)
-          setAbsentMembers(newAbsent)
-          // Once rotation_advanced, the night stays closed regardless of
-          // who's present now -- never re-resolve a current person after
-          // that, matching the server's own gating (2026-08-09).
-          const cur = newRotationAdvanced ? null : resolveCurrentTurn(newOrder, newAbsent, newPrayed)
-          const next = (newRotationAdvanced || cur === null)
-            ? null
-            : resolveCurrentTurn(newOrder, newAbsent, [...newPrayed, cur])
-          setCurrentPrayerId(cur)
-          setNextPrayerId(next)
-          setAllPrayed(newRotationAdvanced)
-        }
-      )
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
+    function onForeground() {
+      if (document.visibilityState === 'visible') resyncPrayerState()
     }
-  }, [group?.id, sessionId])
+    document.addEventListener('visibilitychange', onForeground)
+    window.addEventListener('focus', onForeground)
+    return () => {
+      document.removeEventListener('visibilitychange', onForeground)
+      window.removeEventListener('focus', onForeground)
+    }
+  }, [group?.id, coordinator])
 
   async function loadVerse() {
     // The render below already requires a group before showing any verse
     // content (see the `if (!group) return ...` guard further down), so
     // there is nothing to load until group.id is known.
-    if (!group?.id) {
+    if (!group?.id || !coordinator) {
       setLoading(false)
       return
     }
@@ -151,58 +195,28 @@ export default function TablePage({ onLeaveTable }) {
       // 20260714000004_shared_dinner_session.sql). Every member's device
       // calling this converges on the same verse, questions, prayer, and
       // prayer_order -- never a separate pick per device.
-      const { data, error: rpcError } = await supabase.rpc('get_or_create_tonight_session', {
-        group_id_input: group.id
-      })
-      if (rpcError) throw rpcError
-      const session = data?.[0]
-      if (!session) {
-        setError('Could not load verse. Please try again.')
-        setLoading(false)
-        return
-      }
+      const { state, verse: dinnerVerse, verseDate } = await coordinator.loadSession()
 
-      setVerse({
-        id: session.dinner_verse_id,
-        verse_ref: session.verse_ref,
-        category: session.category,
-        verse_text: session.verse_text,
-        context_text: session.context_text,
-        question_level_1: session.question_level_1,
-        question_level_2: session.question_level_2,
-        question_level_3: session.question_level_3,
-        // session.prayer_text is already resolved server-side from the
-        // session's stored prayer_tier -- the exact same value every
-        // member and every guest receives for this dinner.
-        prayer_level_1: session.prayer_text
-      })
-      setPrayerOrder(session.prayer_order || [])
-      setPrayerTurnsCompleted(session.prayer_turns_completed || 0)
-      setAbsentMembers(session.absent_members || [])
-      // current_prayer_id / next_prayer_id / all_prayed are resolved
-      // server-side (see 20260809000001_stateless_prayer_turn_resolution.sql)
-      // -- always trust these directly rather than re-deriving from
-      // prayer_order/prayer_turns_completed here.
-      setCurrentPrayerId(session.current_prayer_id || null)
-      setNextPrayerId(session.next_prayer_id || null)
-      setAllPrayed(!!session.all_prayed)
-      setSessionId(session.session_id)
-      track('verse_loaded', { verse_ref: session.verse_ref })
+      setVerse(dinnerVerse)
+      // The whole prayer picture, exactly as the server resolved it.
+      sessionIdRef.current = state.sessionId
+      setPrayerState(state)
+      track('verse_loaded', { verse_ref: dinnerVerse.verse_ref })
 
-      if (session.all_prayed) {
+      if (state.allPrayed) {
         showToast("Your family already completed tonight's dinner. 🙏")
       }
 
-      // session.verse_date is the canonical dinner date the RPC already
-      // computed server-side (group timezone + 4am cutoff) -- used here
-      // instead of a client-computed date, so this check can't drift
-      // from what the RPC considers "tonight."
+      // verseDate is the canonical dinner date the RPC already computed
+      // server-side (group timezone + 4am cutoff) -- used here instead
+      // of a client-computed date, so this check can't drift from what
+      // the RPC considers "tonight."
       const { data: historyData } = await supabase
         .from('verse_history')
         .select('id')
-        .eq('dinner_verse_id', session.dinner_verse_id)
+        .eq('dinner_verse_id', dinnerVerse.id)
         .eq('user_id', user.id)
-        .gte('discussed_at', session.verse_date)
+        .gte('discussed_at', verseDate)
         .single()
       setDiscussed(!!historyData)
     } catch (err) {
@@ -248,74 +262,88 @@ export default function TablePage({ onLeaveTable }) {
     return verse.prayer_level_1 || ''
   }
 
-  async function nextPrayer() {
-    if (!group?.id || allPrayed || !currentPrayerId || markingPrayer) return // prevent double submission; nothing to complete if no one is currently present
+  // Every prayer action goes through the coordinator, which performs
+  // the mutation, re-reads authoritative state, and confirms the
+  // transition actually happened before reporting anything. This
+  // component therefore cannot say "X prayed" unless the database says
+  // so -- the defect that made the old screen announce turns the
+  // server had refused.
+  async function runPrayerAction(action, fn) {
+    if (!coordinator || markingPrayer) return
     setMarkingPrayer(true)
     try {
-      // complete_prayer_turn() is atomic and idempotent per turn (see
-      // 20260714000004_shared_dinner_session.sql, redesigned
-      // 2026-08-09) -- it records expected_current_prayer_id as having
-      // ACTUALLY prayed only if the server's own identity-based
-      // resolution still agrees that's who's up; the guard against a
-      // duplicate/racing tap is "not already in prayed_members," not a
-      // scalar count match. The loser of a race, or a stale/duplicate
-      // tap, simply gets back the true, already-resolved state.
-      const justPrayedId = currentPrayerId
-      const { data, error } = await supabase.rpc('complete_prayer_turn', {
-        group_id_input: group.id,
-        expected_current_prayer_id: currentPrayerId
-      })
-      if (error) throw error
-      const result = data?.[0]
-      if (!result) throw new Error('No result')
-      setPrayerTurnsCompleted(result.prayer_turns_completed)
-      setCurrentPrayerId(result.current_prayer_id || null)
-      setNextPrayerId(result.next_prayer_id || null)
-      setAllPrayed(!!result.all_prayed)
-      if (result.all_prayed) {
-        track('prayer_completed', { member_count: prayerOrder.length })
-        showToast('Everyone has prayed tonight. 🙏')
-      } else if (result.current_prayer_id) {
-        showToast(`${nameFor(justPrayedId)} prayed. ${nameFor(result.current_prayer_id)} is up next. 🙏`)
-      } else {
-        showToast(`${nameFor(justPrayedId)} prayed. No one else is currently marked present.`)
+      const result = await fn()
+      if (result.state) {
+        sessionIdRef.current = result.state.sessionId ?? sessionIdRef.current
+        setPrayerState(result.state)
       }
+      if (result.outcome === OUTCOME.RECORDED && result.state?.allPrayed) {
+        track('prayer_completed', { member_count: result.state.prayerOrder.length })
+      }
+      showToast(describeOutcome({ ...result, action }, nameFor))
     } catch (err) {
-      console.error('[table:nextPrayer]', err?.message)
+      console.error(`[table:${action}]`, err?.message)
       showToast("That didn't save. Tap it again when you're ready.")
     }
     setMarkingPrayer(false)
   }
 
+  function nextPrayer() {
+    if (allPrayed || !currentPrayerId) return // nothing to complete
+    const expected = currentPrayerId
+    return runPrayerAction('pray', () => coordinator.completeTurn(expected))
+  }
+
+  function passPrayer() {
+    if (allPrayed || !currentPrayerId) return
+    const expected = currentPrayerId
+    // Records a genuine PASSED state -- never a prayer (which would lie
+    // about prayer) and never an absence (which would lie about
+    // attendance, and would let an attendance toggle silently put them
+    // back in the rotation).
+    return runPrayerAction('pass', () => coordinator.passTurn(expected))
+  }
+
   async function toggleAbsent(memberId, currentlyAbsent) {
-    if (!group?.id || markingAbsent) return // prevent double submission
+    if (!coordinator || markingAbsent) return // prevent double submission
     setMarkingAbsent(memberId)
     try {
-      // set_member_absent() writes group_verse.absent_members for
-      // TONIGHT only -- it never touches prayer_order or
-      // prayer_turns_completed (2026-08-09), so this can never cost
-      // anyone their long-term place in the rotation and can never by
-      // itself complete tonight's dinner or consume a rotation turn.
-      // current_prayer_id is resolved fresh server-side from the
-      // permanent rotation + current attendance -- it correctly
-      // becomes null (not any particular person) if no one remains
-      // present, and correctly resolves to whoever the rotation says
-      // is next the moment someone is marked present again.
-      const { data, error } = await supabase.rpc('set_member_absent', {
-        group_id_input: group.id,
-        member_id_input: memberId,
-        absent: !currentlyAbsent
-      })
-      if (error) throw error
-      const result = data?.[0]
-      if (!result) throw new Error('No result')
-      setAbsentMembers(result.absent_members || [])
-      setCurrentPrayerId(result.current_prayer_id || null)
-      setNextPrayerId(result.next_prayer_id || null)
-      setAllPrayed(!!result.all_prayed)
-      showToast(currentlyAbsent ? `${nameFor(memberId)} is back at the table. 🙏` : `${nameFor(memberId)} marked Not Here for tonight.`)
+      // set_member_absent() writes absent_members for TONIGHT only. It
+      // never touches the roster, prayed_members or passed_members, so
+      // it can never cost anyone their place in the rotation, and
+      // attendance alone can never complete a night or reopen one.
+      const result = await coordinator.setAbsent(memberId, !currentlyAbsent)
+      if (result.state) setPrayerState(result.state)
+      if (result.outcome === OUTCOME.FAILED) {
+        showToast("That didn't save. Try again.")
+      } else if (result.outcome === OUTCOME.REFUSED) {
+        showToast('The table has already moved on — showing where it actually is.')
+      } else {
+        showToast(currentlyAbsent
+          ? `${nameFor(memberId)} is back at the table. 🙏`
+          : `${nameFor(memberId)} marked Not Here for tonight.`)
+      }
     } catch (err) {
       console.error('[table:toggleAbsent]', err?.message)
+      showToast("That didn't save. Try again.")
+    }
+    setMarkingAbsent(null)
+  }
+
+  // Puts someone who passed back into tonight's rotation. They reclaim
+  // their exact original position, because eligibility is resolved by
+  // identity and the roster is never rewritten.
+  async function restorePassed(memberId) {
+    if (!coordinator || markingAbsent) return
+    setMarkingAbsent(memberId)
+    try {
+      const result = await coordinator.restorePassed(memberId)
+      if (result.state) setPrayerState(result.state)
+      showToast(result.outcome === OUTCOME.FAILED
+        ? "That didn't save. Try again."
+        : `${nameFor(memberId)} is back in tonight's prayers. 🙏`)
+    } catch (err) {
+      console.error('[table:restorePassed]', err?.message)
       showToast("That didn't save. Try again.")
     }
     setMarkingAbsent(null)
@@ -390,12 +418,17 @@ export default function TablePage({ onLeaveTable }) {
     setTimeout(() => setToast(''), 3000)
   }
 
-  // currentPrayerId / nextPrayerId / allPrayed are STATE (set from the
-  // server's own resolved values -- see loadVerse/nextPrayer/toggleAbsent
-  // above), never re-derived here. Only the name lookups happen at
-  // render time.
+  // Read straight off the authoritative state the server resolved.
+  // Nothing here works out whose turn it is; only name lookups happen
+  // at render time.
+  const currentPrayerId = prayerState?.currentPrayerId ?? null
+  const nextPrayerId = prayerState?.nextPrayerId ?? null
+  const allPrayed = !!prayerState?.allPrayed
   const currentPrayer = currentPrayerId ? nameFor(currentPrayerId) : null
   const nextMember = nextPrayerId ? nameFor(nextPrayerId) : null
+  // "Nobody eligible right now" is a genuinely different state from
+  // "everyone has had their turn", and the screen must say so -- the
+  // old client collapsed both into "your turn to pray".
   const nobodyPresent = !allPrayed && !currentPrayerId
 
   const goldAccent = { position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: 'linear-gradient(90deg, var(--gold), transparent)' }
@@ -477,27 +510,44 @@ export default function TablePage({ onLeaveTable }) {
         {members.length > 0 ? (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             {memberProfiles && memberProfiles.length > 0 ? memberProfiles.map(p => {
-              const isAbsent = absentMembers.includes(p.id)
-              const isCurrent = p.id === currentPrayerId && !allPrayed && !isAbsent
+              // Exactly one of PRAYED / PASSED / ABSENT / PENDING, from
+              // the authoritative identity sets.
+              const state = memberPrayerState(p.id, prayerState)
+              const isAbsent = state === PRAYER_STATE.ABSENT
+              const isPassed = state === PRAYER_STATE.PASSED
+              const isPrayed = state === PRAYER_STATE.PRAYED
+              const isCurrent = p.id === currentPrayerId && !allPrayed
+              const suffix = isPrayed ? ' · prayed 🙏'
+                : isPassed ? ' · passed'
+                : isAbsent ? ' · Not Here'
+                : ''
+              // Tapping a passed member puts them back in the rotation;
+              // tapping anyone else toggles attendance.
+              const onTap = isPassed
+                ? () => restorePassed(p.id)
+                : () => toggleAbsent(p.id, isAbsent)
+              const title = isPassed
+                ? 'Tap to put them back in tonight’s prayers'
+                : isAbsent ? 'Tap to mark present' : 'Tap to mark Not Here for tonight'
               return (
                 <button
                   key={p.id}
-                  onClick={() => toggleAbsent(p.id, isAbsent)}
+                  onClick={onTap}
                   disabled={markingAbsent === p.id}
-                  title={isAbsent ? 'Tap to mark present' : 'Tap to mark Not Here for tonight'}
+                  title={title}
                   style={{
                     fontSize: '12px',
-                    color: isAbsent ? 'var(--silver)' : 'var(--cream)',
-                    background: isCurrent ? 'var(--gold-soft)' : isAbsent ? 'var(--bg3)' : 'var(--bg4)',
+                    color: (isAbsent || isPassed) ? 'var(--silver)' : 'var(--cream)',
+                    background: isCurrent ? 'var(--gold-soft)' : (isAbsent || isPassed) ? 'var(--bg3)' : 'var(--bg4)',
                     border: `0.5px solid ${isCurrent ? 'var(--border-gold)' : 'var(--border)'}`,
                     borderRadius: 999,
                     padding: '4px 12px',
-                    opacity: isAbsent ? 0.55 : (markingAbsent === p.id ? 0.6 : 1),
+                    opacity: (isAbsent || isPassed) ? 0.55 : (markingAbsent === p.id ? 0.6 : 1),
                     cursor: 'pointer',
                     textDecoration: isAbsent ? 'line-through' : 'none'
                   }}
                 >
-                  {p.name}{isAbsent ? ' · Not Here' : ''}
+                  {p.name}{suffix}
                 </button>
               )
             }) : members.map(m => (
@@ -582,11 +632,23 @@ export default function TablePage({ onLeaveTable }) {
           <p style={{ fontSize: '11px', color: 'var(--silver)', textAlign: 'right', marginTop: '0.5rem' }}>— Amen 🙏</p>
         </div>
         <div className="btn-row">
-          <button className="btn btn-green" onClick={nextPrayer} disabled={allPrayed || !currentPrayerId} style={{ opacity: (allPrayed || !currentPrayerId) ? 0.6 : 1 }}>
+          <button className="btn btn-green" onClick={nextPrayer} disabled={allPrayed || !currentPrayerId || markingPrayer} style={{ opacity: (allPrayed || !currentPrayerId || markingPrayer) ? 0.6 : 1 }}>
             {allPrayed ? '🙏 All prayed' : !currentPrayerId ? 'No one present' : '✓ We prayed together'}
           </button>
           <button className="btn" onClick={() => setShowPrayerOverlay(true)}>📖 Full prayer</button>
         </div>
+        {/* Nobody is ever forced to pray. Passing is recorded as its own
+            state -- not as a prayer, and not as an absence. */}
+        {!allPrayed && currentPrayerId && (
+          <button
+            className="btn"
+            onClick={passPrayer}
+            disabled={markingPrayer}
+            style={{ width: '100%', marginTop: '0.5rem', fontSize: '12px', color: 'var(--silver)', opacity: markingPrayer ? 0.6 : 1 }}
+          >
+            {currentPrayer} would rather pass tonight
+          </button>
+        )}
       </div>
 
       {/* We discussed this */}
